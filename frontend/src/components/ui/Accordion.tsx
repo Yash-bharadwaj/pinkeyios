@@ -67,10 +67,9 @@ export function AccordionItem({
       style={
         active
           ? {
-              borderWidth: 1.5,
+              borderWidth: 1,
               borderColor: colors.success,
               borderRadius: 12,
-              backgroundColor: "rgba(52,199,89,0.08)",
               marginVertical: 6,
               paddingHorizontal: 10,
             }
