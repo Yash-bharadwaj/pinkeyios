@@ -18,6 +18,11 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// Items with an active border bleed to the card's outer edge (see
+// AccordionItem below) — clip them to the card's own rounded corners
+// instead of letting square corners poke past the curve.
+const ACCORDION_PADDING_H = 16;
+
 export function Accordion({ children }: { children: React.ReactNode }) {
   const { colors } = useTheme();
   return (
@@ -27,7 +32,8 @@ export function Accordion({ children }: { children: React.ReactNode }) {
         borderRadius: 16,
         borderWidth: 1,
         borderColor: colors.border,
-        paddingHorizontal: 16,
+        paddingHorizontal: ACCORDION_PADDING_H,
+        overflow: "hidden",
       }}
     >
       {children}
@@ -69,9 +75,8 @@ export function AccordionItem({
           ? {
               borderWidth: 1,
               borderColor: colors.success,
-              borderRadius: 12,
-              marginVertical: 6,
-              paddingHorizontal: 10,
+              marginHorizontal: -ACCORDION_PADDING_H,
+              paddingHorizontal: ACCORDION_PADDING_H,
             }
           : { borderBottomWidth: last ? 0 : 1, borderBottomColor: colors.border }
       }
