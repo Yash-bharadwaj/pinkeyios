@@ -1,0 +1,54 @@
+{
+  "summary": "Tested PINKEY Phase 3+4 (Firebase auth gate, license lifecycle, admin CRUD) — backend 22/23 pytest passed (95.7%); frontend smoke: Login screen loads, wrong creds show friendly error 'Incorrect email or password.', Admin login (someyash2000@gmail.com/Yash2000@) lands on 'PINKEY Admin' dashboard with revenue card ($99 USD · 1 sale), stats (1 Users/1 Active/1 Paid/0 Free) and magicians list; New User flow generates a PINK-XXXX-XXXX-XXXX license with copy button ('PINK-LLTR-QHHD-A0MD' created for ui_test_18129@example.com and appeared in list after Done). Confirmed backend bug: /api/admin/users returns soft-deleted users (status='deleted') — dashboard shows them with a 'DELETED' badge but sales-summary filters them out, so the two admin endpoints disagree (see server.py:252 vs :403). Confirmed license lifecycle end-to-end: create → performer signIn → gate=needs_activation → activate (device bind) → 2nd device 409 → status open → admin revoke → performer gate=blocked reason=revoked → reactivate → unbind (removed=1, devices cleared) → disable user → performer /me 403 → re-enable → reset password (new pw authenticates via Firebase REST) → sales patch refunded=true. Also: /api/me & /api/admin/users correctly return 401 without token; performer role gets 403 on admin routes; wrong Firebase pw is rejected. No React Native red screen. No deprecated packages detected. Firebase Admin SDK initialised cleanly (admin seeded uid=gPa56f9WjPPajin1Y0hiBm8B2DD2).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/admin/users",
+        "issue": "Soft-deleted users (status='deleted') are still returned by admin_list_users (server.py:252 filters only role='performer'). Inconsistent with /api/admin/sales/summary (server.py:403 correctly excludes status='deleted'). UI does render a 'DELETED' badge for them, so behaviour may be intentional (admin history), but the two endpoints should agree — either both include or both exclude deleted rows, and if included the count math in the summary should reflect them."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AdminDashboard sign-out icon",
+        "issue": "Playwright locator for [data-testid=\"admin-logout-button\"] resolved to a hidden <div> (21× hidden). The visible logout icon in the top-right of the dashboard is tappable (confirmed via screenshot), so a duplicate/hidden node with the same testID likely exists in the tree — recommend making testID unique or using .first in scripts.",
+        "testID": "admin-logout-button",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_pinkey_api.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/admin_dashboard.png",
+    "/app/test_reports/create_success.png"
+  ],
+  "action_items": [
+    "BACKEND: In server.py admin_list_users (line 252), add status filter: db.users.find({'role': 'performer', 'status': {'$ne': 'deleted'}}) OR document that deleted users are intentionally returned; align with sales_summary behaviour.",
+    "FRONTEND (minor): Ensure only ONE visible element has testID='admin-logout-button' — a hidden duplicate is present in the DOM which trips automated selectors.",
+    "Nice-to-have: Consider indexing db.users on {role, status} and db.devices on {uid} for the frequent admin listing query."
+  ],
+  "critical_code_review_comments": [
+    "server.py: soft-delete semantics inconsistent between /api/admin/users (includes deleted) and /api/admin/sales/summary (excludes deleted).",
+    "server.py:262 uses get_user_by_email() (Firebase Admin) as a sync call from an async route — OK for now but could block the event loop; consider run_in_threadpool if throughput matters.",
+    "AuthContext.tsx cached grant is compared by uid only — if the same device is later signed in as a different Firebase user with an offline device, the fallback branch will not misfire (guarded by grant.uid === fbUser.uid). Good.",
+    "api.ts: All admin mutation endpoints correctly pass Firebase ID token via Authorization header; JSON body / query params match FastAPI signatures.",
+    "server.py mongo _id is stripped on user, device, license, sale before returning (via .pop('_id', None)). Good."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "95.7% (22/23 pytest — only failure is the soft-delete listing bug documented above)",
+    "frontend": "5/6 smoke assertions passed (login-screen, wrong-creds error, admin login+dashboard, create user + license key, back to list). Logout selector hit a hidden duplicate — visible icon works in-app."
+  },
+  "seed_data_creation": "Test run created and (attempted to) delete ui/pytest performers. One residual soft-deleted user (test_perf_1790335730@example.com, status='deleted') and one active UI-created user (ui_test_18129@example.com) remain in Mongo. Admin can clean via the dashboard delete action.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "1) Backend pytest at /app/backend/tests/test_pinkey_api.py is regression-ready — run with `pytest /app/backend/tests/ -v --tb=short`. It uses FIREBASE_WEB_API_KEY from backend/.env to sign in admin & created performers via REST. 2) The magician1@test.com Firebase account IS present and its license PINK-J3AG-EP13-O7HJ is 'active' with devices cleared (per handoff). Activation flow in the browser will bind a fresh device_id — subsequent contexts 409 unless admin action-unbind is called first. 3) Admin dashboard hidden duplicate for admin-logout-button — pass `.first` or query by role/text. 4) After each testing pass, delete UI-created TEST performers via admin action-delete to keep Mongo clean.",
+  "rca_of_issue": "Soft-delete listing bug: admin_delete_user sets users.status='deleted' but admin_list_users does not exclude that status, whereas admin_sales_summary does. Fix: add status filter to admin_list_users query AND to its count_documents(), OR change admin_delete_user to hard-delete the user row (keeping licenses/audit for history)."
+}

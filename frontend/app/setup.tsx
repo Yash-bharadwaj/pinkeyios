@@ -10,11 +10,12 @@ import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Symbol } from "@/src/components/Symbol";
+import { useAuth } from "@/src/auth/AuthContext";
 import { WALLPAPER_PRESETS, isCustomWallpaper } from "@/src/components/wallpapers";
 import { buildAttempts, buildDefaultConfig } from "@/src/engine/defaults";
 import { createSession, transformValue } from "@/src/engine/engine";
 import { loadConfig, saveConfig, setCurrentSession } from "@/src/engine/sessionStore";
-import type { EntryLength, Mode, PerformanceConfig } from "@/src/engine/types";
+import type { EntryLength, Mode, PerformanceConfig, ScriptStep, StepKind } from "@/src/engine/types";
 import { makeStyles } from "@/src/theme";
 
 const MODES: { key: Mode; title: string; subtitle: string }[] = [
@@ -24,17 +25,17 @@ const MODES: { key: Mode; title: string; subtitle: string }[] = [
   { key: "HYBRID", title: "Hybrid", subtitle: "Mixed routine" },
 ];
 
+const STEP_KINDS: { key: StepKind; label: string }[] = [
+  { key: "direct", label: "Direct" },
+  { key: "transform", label: "Transform" },
+  { key: "delete", label: "Delete" },
+  { key: "filler", label: "Filler" },
+];
+
 const LENGTHS: { key: EntryLength; title: string; subtitle: string }[] = [
   { key: 4, title: "4 digits", subtitle: "MMYY" },
   { key: 6, title: "6 digits", subtitle: "MMDDYY" },
 ];
-
-const KIND_LABEL: Record<string, string> = {
-  direct: "Direct",
-  delete: "Delete (retained)",
-  filler: "Filler (excluded)",
-  transform: "Transform",
-};
 
 function parseOffsets(text: string): number[] | null {
   const trimmed = text.trim();
@@ -46,6 +47,7 @@ export default function SetupScreen() {
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { logout } = useAuth();
 
   const [config, setConfig] = useState<PerformanceConfig | null>(null);
   const [offsetsText, setOffsetsText] = useState("");
@@ -105,6 +107,44 @@ export default function SetupScreen() {
     setOffsetsError("");
     setConfig({ ...config, offsets: parsed });
   };
+
+  const updateStep = (index: number, patch: Partial<ScriptStep>) => {
+    const script = config.script.map((s, i) => {
+      if (i !== index) return s;
+      const next = { ...s, ...patch };
+      if (next.kind === "filler") next.position = 0;
+      else if (s.kind === "filler" && next.position === 0) next.position = 1;
+      return next;
+    });
+    setConfig({ ...config, script });
+  };
+
+  const removeStep = (index: number) => {
+    setConfig({ ...config, script: config.script.filter((_, i) => i !== index) });
+  };
+
+  const addStep = () => {
+    setConfig({
+      ...config,
+      script: [...config.script, { position: 1, kind: "direct", offset: 0 }],
+    });
+  };
+
+  // Which target positions are covered exactly once (fillers excluded)?
+  const coverage = (() => {
+    const counts: Record<number, number> = {};
+    for (const s of config.script) {
+      if (s.kind === "filler") continue;
+      counts[s.position] = (counts[s.position] ?? 0) + 1;
+    }
+    const missing: number[] = [];
+    const dupes: number[] = [];
+    for (let p = 1; p <= config.entryLength; p++) {
+      if (!counts[p]) missing.push(p);
+      else if (counts[p] > 1) dupes.push(p);
+    }
+    return { missing, dupes, ok: missing.length === 0 && dupes.length === 0 };
+  })();
 
   const pickWallpaperPhoto = async () => {
     setWallpaperError("");
@@ -279,22 +319,119 @@ export default function SetupScreen() {
             <Text style={styles.sectionLabel}>ROUTINE SCRIPT</Text>
             <View style={styles.card}>
               {config.script.map((step, i) => (
-                <View
-                  key={i}
-                  style={[styles.scriptRow, i > 0 && styles.scriptRowBorder]}
-                  testID={`script-step-${i}`}
-                >
-                  <Text style={styles.scriptStep}>Step {i + 1}</Text>
-                  <Text style={styles.scriptDetail}>
-                    {step.kind === "filler"
-                      ? KIND_LABEL.filler
-                      : `Position ${step.position} · ${KIND_LABEL[step.kind]}${
-                          step.kind === "transform" ? ` (+${step.offset})` : ""
-                        }`}
-                  </Text>
+                <View key={i} style={styles.stepCard} testID={`script-step-${i}`}>
+                  <View style={styles.stepHeader}>
+                    <Text style={styles.stepNumber}>Step {i + 1}</Text>
+                    <Pressable
+                      testID={`script-remove-${i}`}
+                      onPress={() => removeStep(i)}
+                      hitSlop={10}
+                    >
+                      <Symbol name="trash" fallback="🗑" size={18} color={styles.colors.error} />
+                    </Pressable>
+                  </View>
+
+                  {/* Kind chips */}
+                  <View style={styles.kindRow}>
+                    {STEP_KINDS.map((k) => {
+                      const active = step.kind === k.key;
+                      return (
+                        <Pressable
+                          key={k.key}
+                          testID={`script-${i}-kind-${k.key}`}
+                          style={[styles.kindChip, active && styles.kindChipActive]}
+                          onPress={() => updateStep(i, { kind: k.key })}
+                        >
+                          <Text style={[styles.kindText, active && styles.kindTextActive]}>
+                            {k.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  {/* Position + offset controls */}
+                  <View style={styles.stepControls}>
+                    {step.kind !== "filler" && (
+                      <View style={styles.miniControl}>
+                        <Text style={styles.miniLabel}>Position</Text>
+                        <View style={styles.miniStepper}>
+                          <Pressable
+                            testID={`script-${i}-pos-minus`}
+                            style={styles.miniButton}
+                            onPress={() =>
+                              updateStep(i, {
+                                position: Math.max(1, step.position - 1),
+                              })
+                            }
+                            hitSlop={6}
+                          >
+                            <Text style={styles.miniButtonLabel}>−</Text>
+                          </Pressable>
+                          <Text style={styles.miniValue}>{step.position}</Text>
+                          <Pressable
+                            testID={`script-${i}-pos-plus`}
+                            style={styles.miniButton}
+                            onPress={() =>
+                              updateStep(i, {
+                                position: Math.min(config.entryLength, step.position + 1),
+                              })
+                            }
+                            hitSlop={6}
+                          >
+                            <Text style={styles.miniButtonLabel}>+</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    )}
+                    {step.kind === "transform" && (
+                      <View style={styles.miniControl}>
+                        <Text style={styles.miniLabel}>Offset +</Text>
+                        <View style={styles.miniStepper}>
+                          <Pressable
+                            testID={`script-${i}-off-minus`}
+                            style={styles.miniButton}
+                            onPress={() => updateStep(i, { offset: Math.max(0, step.offset - 1) })}
+                            hitSlop={6}
+                          >
+                            <Text style={styles.miniButtonLabel}>−</Text>
+                          </Pressable>
+                          <Text style={styles.miniValue}>{step.offset}</Text>
+                          <Pressable
+                            testID={`script-${i}-off-plus`}
+                            style={styles.miniButton}
+                            onPress={() => updateStep(i, { offset: Math.min(9, step.offset + 1) })}
+                            hitSlop={6}
+                          >
+                            <Text style={styles.miniButtonLabel}>+</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    )}
+                    {step.kind === "filler" && (
+                      <Text style={styles.fillerHint}>Ignored in reconstruction</Text>
+                    )}
+                  </View>
                 </View>
               ))}
-              <Text style={styles.hintText}>Reference routine from the performance guide.</Text>
+
+              <Pressable testID="script-add-step" style={styles.addStepButton} onPress={addStep}>
+                <Symbol name="plus" fallback="+" size={16} color={styles.colors.brandPrimary} />
+                <Text style={styles.addStepLabel}>Add step</Text>
+              </Pressable>
+
+              {coverage.ok ? (
+                <Text testID="script-coverage-ok" style={styles.coverageOk}>
+                  ✓ All {config.entryLength} positions mapped once — reconstruction is complete.
+                </Text>
+              ) : (
+                <Text testID="script-coverage-warn" style={styles.coverageWarn}>
+                  {coverage.missing.length > 0 &&
+                    `Positions ${coverage.missing.join(", ")} not yet mapped. `}
+                  {coverage.dupes.length > 0 && `Positions ${coverage.dupes.join(", ")} mapped twice. `}
+                  The Peek will show • for unmapped slots.
+                </Text>
+              )}
             </View>
           </>
         )}
@@ -413,6 +550,10 @@ export default function SetupScreen() {
           During a performance: long-press “Emergency” to return here. After the unlock,
           long-press the screen for 2 seconds to open Peek.
         </Text>
+
+        <Pressable testID="setup-signout-button" style={styles.signOut} onPress={logout}>
+          <Text style={styles.signOutLabel}>Sign out</Text>
+        </Pressable>
       </KeyboardAwareScrollView>
     </View>
   );
@@ -569,6 +710,73 @@ const useStyles = makeStyles((colors) => ({
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
+  stepCard: {
+    backgroundColor: colors.surfaceTertiary,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 12,
+    marginBottom: 10,
+  },
+  stepHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  stepNumber: { fontSize: 13, fontWeight: "700", color: colors.muted, letterSpacing: 0.5 },
+  kindRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
+  kindChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    flexShrink: 0,
+  },
+  kindChipActive: { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary },
+  kindText: { fontSize: 13, fontWeight: "600", color: colors.onSurfaceSecondary },
+  kindTextActive: { color: colors.onBrandPrimary },
+  stepControls: { flexDirection: "row", gap: 20, marginTop: 12, alignItems: "center" },
+  miniControl: { gap: 6 },
+  miniLabel: { fontSize: 11, color: colors.muted },
+  miniStepper: { flexDirection: "row", alignItems: "center", gap: 12 },
+  miniButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  miniButtonLabel: { fontSize: 18, color: colors.onSurfaceSecondary, lineHeight: 20 },
+  miniValue: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: colors.brandPrimary,
+    minWidth: 18,
+    textAlign: "center",
+    fontVariant: ["tabular-nums"],
+  },
+  fillerHint: { fontSize: 12, color: colors.muted, fontStyle: "italic" },
+  addStepButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: colors.brandTertiary,
+    marginTop: 2,
+  },
+  addStepLabel: { fontSize: 14, fontWeight: "600", color: colors.brandPrimary },
+  coverageOk: { fontSize: 12, color: colors.success, marginTop: 12, lineHeight: 18 },
+  coverageWarn: { fontSize: 12, color: colors.warning, marginTop: 12, lineHeight: 18 },
   scriptStep: {
     fontSize: 14,
     color: colors.muted,
@@ -637,4 +845,6 @@ const useStyles = makeStyles((colors) => ({
     marginTop: 16,
     lineHeight: 18,
   },
+  signOut: { alignItems: "center", paddingVertical: 16, marginTop: 4 },
+  signOutLabel: { fontSize: 14, color: colors.muted, textDecorationLine: "underline" },
 }));

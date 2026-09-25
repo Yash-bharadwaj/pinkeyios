@@ -39,18 +39,33 @@ iOS App Store only (unlisted distribution target). Premium quality, no crashes, 
 ## Implemented
 - **2026-09-25 (Phase 1)**: Full engine + 20 passing unit tests (all brief acceptance tests
   1–13 + backspace/reset). Pure, offline, deterministic.
-- **2026-09-25 (Phase 2)**: Spectator lock screen (live clock, dots, custom keypad, haptics,
-  click sounds, wrong-attempt shake), Basic/Transform/Scramble/Hybrid flows, setup screen
-  (mode, length, attempts 2–6, offsets editor with live preview + validation, routine script
-  view, haptics/sound toggles), hidden Peek (long-press 2s, summary table + source events,
-  New Session / Close), discreet setup entry (long-press "Emergency"). Testing agent: 29/29
-  E2E assertions passed; 1 bug found (duplicate React key in Transform peek rows) — fixed.
-- **2026-09-25 (Phase 2.5 — realism upgrade)**: iOS-style unlock transition (lock slides up,
-  home fades in, icons stagger in), realistic home screen (status bar, labeled app grid,
-  dock, home indicator), configurable wallpaper: 5 bundled cinematic presets (Midnight,
-  Ocean, Forest, Sunset, Graphite — all offline) + performer's own photo via expo-image-picker
-  (contextual permission flow with Open Settings fallback). Fixed 44pt steppers, brighter scrim.
-  Bundle ID set to com.pinkey.app; app renamed PINKEY; dark UI pinned.
+- **2026-09-25 (Phase 2)**: Spectator lock screen, all 4 mode flows, setup screen, hidden Peek.
+  Testing agent 29/29.
+- **2026-09-25 (Phase 2.5)**: iOS-style unlock transition, realistic home screen, configurable
+  wallpaper (5 presets + own photo). Bundle com.pinkey.app, app renamed PINKEY.
+- **2026-09-25 (Phase 3 — Auth & License Gate)**: Firebase email/password auth (JS SDK, Expo Go
+  compatible, AsyncStorage persistence). No self-signup. Gate states: loading / signed-out /
+  needs-activation / blocked / open-admin / open-performer. Device-bound licenses (1 device),
+  activation screen, blocked screen, offline 30-day grace cache with online revalidation
+  (revoke locks out on next internet). Backend: FastAPI + Firebase Admin SDK verifying ID
+  tokens, service account stored base64 in backend/.env. Collections: users, licenses, devices,
+  sales, audit. Admin seeded on startup.
+- **2026-09-25 (Phase 4 — Admin Dashboard)**: Owner dashboard — revenue summary (USD & INR),
+  stats, magicians list; create user (email/name/temp-password, price or free, currency) →
+  auto-issues license key (copyable); per-user action sheet: revoke/reactivate license, unbind
+  device, disable/enable account, reset password, delete user. All /api/admin/* behind Firebase
+  token + admin role. Testing agent: backend 23/23 pytest, frontend smoke pass. Fixed: list
+  endpoint now excludes soft-deleted users.
+- **2026-09-25 (Script Editor)**: Setup now has a full step-by-step editor for Scramble/Hybrid —
+  per-step kind (Direct/Transform/Delete/Filler), position & offset steppers, add/remove step,
+  live coverage indicator. Performer sign-out added to Setup.
+
+## Backend API surface
+- Performer: GET /api/me, POST /api/license/activate, POST /api/license/status
+- Admin: GET/POST /api/admin/users, POST /api/admin/users/{uid}/status, /reset-password,
+  DELETE /api/admin/users/{uid}, POST /api/admin/licenses/{id}/set, /unbind,
+  PATCH /api/admin/sales/{id}, GET /api/admin/sales/summary
+- Tests: /app/backend/tests/test_pinkey_api.py (23 passing)
 
 ## Prioritized Backlog
 - **P0 — Phase 3 (Auth & License Gate)**: Firebase email/password login (admin-created

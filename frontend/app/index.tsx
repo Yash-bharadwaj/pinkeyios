@@ -4,13 +4,14 @@
 //   - long-press "Emergency" → Setup
 //   - after unlock, long-press (2s) the screen → Peek
 
-import { useFocusEffect, useRouter } from "expo-router";
+import { Redirect, useFocusEffect, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import Animated, { FadeIn, SlideOutUp } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useAuth } from "@/src/auth/AuthContext";
 import { Keypad } from "@/src/components/Keypad";
 import { PasscodeDots } from "@/src/components/PasscodeDots";
 import { UnlockedView } from "@/src/components/UnlockedView";
@@ -42,6 +43,7 @@ export default function PerformanceScreen() {
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { profile } = useAuth();
 
   const [session, setSession] = useState<Session | null>(null);
   const [dots, setDots] = useState(0);
@@ -146,6 +148,11 @@ export default function PerformanceScreen() {
   if (!session) {
     // No spinner — a spinner would kill the lock-screen illusion.
     return <View testID="performance-screen" style={styles.container} />;
+  }
+
+  // Admin (owner) goes to the dashboard, not the performance surface.
+  if (profile?.role === "admin") {
+    return <Redirect href="/admin" />;
   }
 
   const unlocked = session.status === "UNLOCKED";
