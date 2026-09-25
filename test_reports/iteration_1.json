@@ -1,0 +1,63 @@
+{
+  "summary": "Tested PINKEY Phase 1+2 (frontend only, web preview). ALL flows pass: lock screen render (clock/date/prompt/4 dots/keypad 0-9/Emergency/Cancel), BASIC 4-attempt unlock with shake+clear on wrong attempts, delete-key backspace with Cancel swap, Setup via 1.2s long-press Emergency (mode chips, length chips, attempts stepper 4-5-4, offsets validation + live preview 2749→6871, script lists, haptics/sound toggles, Start Performance), TRANSFORM 6871→unlock→Peek 2749/associated 6871/date 27-49, SCRAMBLE 7,9,4,6,4→2749 with deleted-pos4 + excluded-filler rows, HYBRID 7,9,4,4→2749, Peek New Session reset + Close return, 6-digit length shows 6 dots, direct /peek shows 'No completed session yet.' empty state, lock screen verified strictly monochrome (zero brand-gold pixels found via computed-style scan). Found + fixed one real bug: duplicate React key in TRANSFORM peek rows (Visible entry reused events[0].id) which fired a console error whose LogBox toast covered the Peek Close button and blocked navigation. Deprecated expo packages: none. SafeAreaView misuse: none.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Peek screen (TRANSFORM mode)",
+        "issue": "FIXED: duplicate React key 'ev_...' — 'Visible entry' row reused session.events[0].id (engine.ts getPeek). Caused console error + LogBox toast overlaying Close button, blocking tap. Fixed by prefixing eventId with 'visible_'. Verified: no console errors, Close works.",
+        "testID": "peek-row-0",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "UnlockedView",
+        "issues": [
+          "Background is very dark on web preview — the 8 app tiles are barely visible behind the gradient (asset unlocked-bg.png loads 200, so it is gradient opacity, not a broken image). Consider lightening gradient stop rgba(5,5,8,0.75) if tiles should read as a home screen."
+        ]
+      },
+      {
+        "screen": "Setup",
+        "issues": [
+          "Attempts stepper buttons are 36x36px (< 44pt touch-target guideline; hitSlop 8 partially mitigates)."
+        ]
+      }
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/unlocked.png",
+    "/app/test_reports/peek_basic.png",
+    "/app/test_reports/setup_transform.png",
+    "/app/test_reports/peek_transform.png",
+    "/app/test_reports/peek_scramble.png",
+    "/app/test_reports/lock_6digit.png"
+  ],
+  "action_items": [
+    "Optional: lighten UnlockedView gradient so app tiles are visible (design judgment call)",
+    "Optional: bump setup stepper buttons to 44x44px",
+    "setup.tsx has two separate import statements from '@/src/engine/engine' (lines 12 & 14) — harmless lint nit, can merge"
+  ],
+  "critical_code_review_comments": [
+    "engine.ts getPeek TRANSFORM branch reused events[0].id as the 'Visible entry' row key — fixed; watch for key uniqueness whenever synthesizing rows from existing events",
+    "Engine is pure/deterministic with no RN imports — good; session store correctly in-memory with only config persisted",
+    "All interactive elements have testID; text wrapped in Text; StyleSheet used throughout; no hardcoded URLs (fully offline)"
+  ],
+  "updated_files": [
+    "/app/frontend/src/engine/engine.ts (duplicate peek row key fix)"
+  ],
+  "success_rate": {
+    "backend": "N/A (fully offline app, no backend in this phase)",
+    "frontend": "100% (29/29 assertions passed across render, BASIC, TRANSFORM, SCRAMBLE, HYBRID, peek actions, 6-digit, empty state, monochrome check)"
+  },
+  "seed_data_creation": "None — config persisted to local storage was reset to BASIC 4-digit default at end of testing",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Long-press gestures work on web via page.click(selector, delay=1500/2200, force=True). Peek requires in-memory session — never page.goto('/peek') mid-flow; navigate within one page session. LogBox error toasts at screen bottom intercept bottom buttons (Close) — check console errors if bottom buttons seem unresponsive. Config persists in web localStorage under key 'pinkey.config'; each browser_automation run starts fresh. setup.tsx open_setup flow only works from LOCKED screen (Emergency doesn't exist on unlocked screen — by design).",
+  "rca_of_issue": "Bug: Peek Close button unresponsive in TRANSFORM mode. RCA: getPeek() built the 'Visible entry' row with eventId = session.events[0].id, identical to the first per-position TRANSFORM row -> React duplicate-key console error -> Expo LogBox toast rendered at bottom of screen overlapping the Close button -> taps hit the toast (expanded error detail) instead of the button. Mitigation applied: unique 'visible_' prefixed key. Verified post-fix: no console error, Close navigates back to visible unlocked screen."
+}

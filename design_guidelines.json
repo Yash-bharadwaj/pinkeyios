@@ -1,0 +1,152 @@
+{
+  "app_name": "PINKEY",
+  "personality": "6 Glass / Luxe DARK",
+  "personality_one_liner": "A deceptive, ultra-premium cinematic lock screen concealing a powerful command center for theatrical performances.",
+  "color": {
+    "surface": "#050508",
+    "onSurface": "#F5F5F5",
+    "surfaceSecondary": "#141417",
+    "onSurfaceSecondary": "#EAEAEA",
+    "surfaceTertiary": "#222225",
+    "onSurfaceTertiary": "#D0D0D0",
+    "surfaceInverse": "#EAEAEA",
+    "onSurfaceInverse": "#050508",
+    "brand": "#C5A059",
+    "brandPrimary": "#C5A059",
+    "onBrandPrimary": "#050508",
+    "brandSecondary": "#E4C787",
+    "onBrandSecondary": "#050508",
+    "brandTertiary": "#8A6D3B",
+    "onBrandTertiary": "#FFFFFF",
+    "success": "#34C759",
+    "onSuccess": "#000000",
+    "warning": "#FF9F0A",
+    "onWarning": "#000000",
+    "error": "#FF453A",
+    "onError": "#FFFFFF",
+    "info": "#C5A059",
+    "onInfo": "#050508",
+    "border": "#2A2A2E",
+    "borderStrong": "#3A3A40",
+    "muted": "#7A7A80"
+  },
+  "typography": {
+    "displayFontFamily": "Geist",
+    "textFontFamily": "Geist",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24,
+      "3xl": 36,
+      "4xl": 48
+    }
+  },
+  "spacing": {
+    "rule": "Generous spacing for tap targets (essential for performers relying on muscle memory). Maintain strict alignment for the passcode grid.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "0",
+  "navigation": "stack_only",
+  "icon_set": "Ionicons",
+  "glassmorphism": {
+    "enabled": true,
+    "do's": [
+      "Use frosted glass on the Performer Setup screen headers and Peek view data table rows.",
+      "Apply glass effects strictly for performer-facing elevated surfaces."
+    ],
+    "dont's": [
+      "NEVER use glassmorphism on the Spectator Lock Screen; it must remain completely flat, dark, and raw to sell the OS illusion.",
+      "Avoid heavy blur on small text layers."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Spectator Lock Screen (Performance Mode)",
+      "purpose": "A deceptive, completely unbranded OS-style passcode screen that spectators interact with in dim lighting.",
+      "states": {
+        "loading": "Dark screen, no visible spinners (kills the illusion).",
+        "empty": "Default state showing empty passcode indicator circles.",
+        "error": "Uses a subtle left-right shake animation on the indicator dots."
+      },
+      "layout": "Flex column architecture. Top flex: 1 for the prompt text and dynamic passcode indicator dots (empty circles that fill upon entry). Middle flex: 2 for the 3x4 numeric keypad. Use large circular hit areas. Bottom area holds 'Emergency' and 'Cancel'/'Delete' text buttons. STRICT MONOCHROME NO BRAND COLORS."
+    },
+    {
+      "name": "Simulated Unlocked Screen",
+      "purpose": "The fake 'home' state that appears upon successful entry, giving the performer time to access the hidden peek.",
+      "states": {
+        "loading": "None.",
+        "empty": "Shows an abstract dark cinematic background to simulate a clean home screen.",
+        "error": "None."
+      },
+      "layout": "Full-bleed background image with a vertical gradient scrim overlay to maintain darkness. Entire screen wrapped in a Pressable with delayLongPress={2000} to trigger the hidden Peek view."
+    },
+    {
+      "name": "Hidden Peek View",
+      "purpose": "A covert, highly glanceable summary table for the performer to instantly read the reconstructed values.",
+      "states": {
+        "loading": "Centered minimalist spinner.",
+        "empty": "No data recorded yet.",
+        "error": "Alert message with retry button."
+      },
+      "layout": "Dark utility layout. Oversized display typography at the top for the main reconstructed value. Below it, a clean glass-morphic list/table mapping original positions, mock dates, and source events. Designed for single-glance readability."
+    },
+    {
+      "name": "Performer Setup Screen",
+      "purpose": "A premium command center where the performer configures trick modes, lengths, and offsets.",
+      "states": {
+        "loading": "Centered minimalist spinner.",
+        "empty": "Ready for configuration.",
+        "error": "Validation error text below inputs."
+      },
+      "layout": "iOS Settings style but cinematic. surfaceSecondary grouped cards for segmented controls (Basic/Transform/Scramble/Hybrid), toggles for haptics/sounds, and input fields for offsets. KeyboardAvoidingView used to prevent overlay issues during offset entry."
+    }
+  ],
+  "images": {
+    "unlocked_background": {
+      "url": "https://images.unsplash.com/photo-1578662996442-48f60103fc96?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODd8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGRhcmslMjBjaW5lbWF0aWMlMjB0ZXh0dXJlJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3OTAzMzIyMDh8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "A black and white abstract cinematic dark texture background"
+    }
+  },
+  "haptics": {
+    "keypad_press": "selection",
+    "wrong_passcode": "notificationError",
+    "unlock_success": "notificationSuccess",
+    "mode_toggle": "impactLight",
+    "peek_view_reveal": "impactMedium"
+  },
+  "instructions_to_main_agent": [
+    "CRITICAL: The Spectator Lock Screen must NOT use the brand color (Antique Gold). It must be strictly monochrome (surface and onSurface) to sell the illusion of a native OS lock screen.",
+    "Wire haptics directly to the keypad interaction. Every digit press must trigger a 'selection' haptic. A wrong passcode must trigger a 'notificationError' haptic alongside a Reanimated shake on the passcode dots.",
+    "For the Performer Setup screen, use iOS-style grouped lists but layered over the deep black/dark espresso backgrounds. Use brandPrimary for active toggle states.",
+    "Hide the Peek View via a strict 2-second long-press (delayLongPress={2000}) on the Simulated Unlocked screen.",
+    "Ensure large, forgiving tap targets (hitSlop) on the passcode keypad, as performers and spectators will use it by muscle memory or under pressure.",
+    "Use Geist font for all numeric readouts to ensure absolute precision, tabular alignment, and an OS-level aesthetic.",
+    "Do not include standard app navigation elements (headers, tab bars) on the Spectator Screen or Unlocked Screen. Maintain a completely immersive, edge-to-edge experience."
+  ]
+}
