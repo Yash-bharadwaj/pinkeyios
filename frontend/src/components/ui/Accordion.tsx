@@ -6,10 +6,12 @@ import {
   LayoutAnimation,
   Platform,
   Pressable,
+  StyleSheet,
   Text,
   UIManager,
   View,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 
 import { Symbol } from "@/src/components/Symbol";
 import { useTheme } from "@/src/theme";
@@ -17,11 +19,6 @@ import { useTheme } from "@/src/theme";
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
-
-// Items with an active border bleed to the card's outer edge (see
-// AccordionItem below) — clip them to the card's own rounded corners
-// instead of letting square corners poke past the curve.
-const ACCORDION_PADDING_H = 16;
 
 export function Accordion({ children }: { children: React.ReactNode }) {
   const { colors } = useTheme();
@@ -32,7 +29,6 @@ export function Accordion({ children }: { children: React.ReactNode }) {
         borderRadius: 16,
         borderWidth: 1,
         borderColor: colors.border,
-        paddingHorizontal: ACCORDION_PADDING_H,
         overflow: "hidden",
       }}
     >
@@ -71,20 +67,31 @@ export function AccordionItem({
   return (
     <View
       style={
+        // The accordion's own paddingHorizontal moved down into the row
+        // content below (see Pressable/body), so every item — active or
+        // not — is naturally full-width here. That means an ordinary,
+        // plain border already reads as "spans the whole card" with no
+        // bleed/negative-margin trick needed, which is what made the
+        // border unreliable across platforms before.
         active
-          ? {
-              borderWidth: 1,
-              borderColor: colors.success,
-              marginHorizontal: -ACCORDION_PADDING_H,
-              paddingHorizontal: ACCORDION_PADDING_H,
-            }
+          ? { borderWidth: 1, borderColor: colors.success }
           : { borderBottomWidth: last ? 0 : 1, borderBottomColor: colors.border }
       }
     >
+      {active && (
+        // A whisper of green from the top, fading to nothing by mid-card —
+        // just enough to read as "premium," not a flat tint.
+        <LinearGradient
+          testID="accordion-active-gradient"
+          colors={["rgba(52,199,89,0.14)", "rgba(52,199,89,0.03)", "rgba(52,199,89,0)"]}
+          locations={[0, 0.5, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+      )}
       <Pressable
         testID={testID}
         onPress={toggle}
-        style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 16 }}
+        style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 16, paddingHorizontal: 16 }}
       >
         {icon}
         <View style={{ flex: 1 }}>
@@ -103,7 +110,7 @@ export function AccordionItem({
         />
       </Pressable>
       {open && (
-        <View style={{ paddingBottom: 18 }}>
+        <View style={{ paddingBottom: 18, paddingHorizontal: 16 }}>
           <Text style={{ fontSize: 13, color: colors.muted, lineHeight: 18, marginBottom: 14 }}>
             {description}
           </Text>
