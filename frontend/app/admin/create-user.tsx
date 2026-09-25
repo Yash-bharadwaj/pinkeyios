@@ -17,6 +17,7 @@ import { Toggle } from "@/src/components/ui/Toggle";
 import { Symbol } from "@/src/components/Symbol";
 import { ThemeScheme, useTheme } from "@/src/theme";
 import { withAlpha } from "@/src/utils/color";
+import { sanitizeDecimalInput } from "@/src/utils/numericInput";
 import { generatePassword } from "@/src/utils/password";
 import { buildAccessMessage } from "@/src/utils/shareMessage";
 
@@ -293,7 +294,7 @@ function CreateUserScreenInner() {
                 <Input
                   testID="create-price-input"
                   value={price}
-                  onChangeText={setPrice}
+                  onChangeText={(text) => setPrice(sanitizeDecimalInput(text))}
                   placeholder="0.00"
                   keyboardType="decimal-pad"
                 />

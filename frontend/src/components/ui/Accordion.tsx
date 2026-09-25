@@ -41,6 +41,7 @@ export function AccordionItem({
   icon,
   defaultOpen,
   last,
+  active,
   testID,
   children,
 }: {
@@ -49,6 +50,7 @@ export function AccordionItem({
   icon?: React.ReactNode;
   defaultOpen?: boolean;
   last?: boolean;
+  active?: boolean;
   testID?: string;
   children: React.ReactNode;
 }) {
@@ -61,7 +63,20 @@ export function AccordionItem({
   };
 
   return (
-    <View style={{ borderBottomWidth: last ? 0 : 1, borderBottomColor: colors.border }}>
+    <View
+      style={
+        active
+          ? {
+              borderWidth: 1.5,
+              borderColor: colors.success,
+              borderRadius: 12,
+              backgroundColor: "rgba(52,199,89,0.08)",
+              marginVertical: 6,
+              paddingHorizontal: 10,
+            }
+          : { borderBottomWidth: last ? 0 : 1, borderBottomColor: colors.border }
+      }
+    >
       <Pressable
         testID={testID}
         onPress={toggle}

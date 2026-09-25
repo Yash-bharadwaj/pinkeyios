@@ -44,6 +44,7 @@ interface KeypadProps {
   onDigit: (digit: number) => void;
   onDelete: () => void;
   canDelete: boolean;
+  onCancel: () => void;
   onSecretSetup: () => void;
   hapticsEnabled: boolean;
   soundsEnabled: boolean;
@@ -97,6 +98,7 @@ export function Keypad({
   onDigit,
   onDelete,
   canDelete,
+  onCancel,
   onSecretSetup,
   hapticsEnabled,
   soundsEnabled,
@@ -117,6 +119,12 @@ export function Keypad({
     if (soundsEnabled) playClick();
     onDelete();
   }, [hapticsEnabled, soundsEnabled, onDelete]);
+
+  const pressCancel = useCallback(() => {
+    if (hapticsEnabled) Haptics.selectionAsync();
+    if (soundsEnabled) playClick();
+    onCancel();
+  }, [hapticsEnabled, soundsEnabled, onCancel]);
 
   const rows = [
     [1, 2, 3],
@@ -165,7 +173,9 @@ export function Keypad({
               <Symbol name="delete.left" fallback="⌫" size={26} color={styles.colors.onSurface} />
             </Pressable>
           ) : (
-            <Text style={styles.sideLabel}>Cancel</Text>
+            <Pressable testID="keypad-cancel" onPress={pressCancel} hitSlop={12}>
+              <Text style={styles.sideLabel}>Cancel</Text>
+            </Pressable>
           )}
         </View>
       </View>

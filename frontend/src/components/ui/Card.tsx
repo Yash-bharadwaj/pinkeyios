@@ -33,23 +33,38 @@ export function Card({ style, ...rest }: ViewProps) {
   );
 }
 
-export function SectionLabel({ children }: { children: React.ReactNode }) {
+export function SectionLabel({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
   const { colors } = useTheme();
-  return (
+  const label = (
     <Text
       style={{
         fontSize: 12,
         fontWeight: "600",
         letterSpacing: 1,
         color: colors.muted,
-        marginTop: 20,
-        marginBottom: 10,
         marginLeft: 2,
         textTransform: "uppercase",
       }}
     >
       {children}
     </Text>
+  );
+  if (!right) {
+    return <View style={{ marginTop: 20, marginBottom: 10 }}>{label}</View>;
+  }
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        marginTop: 20,
+        marginBottom: 10,
+      }}
+    >
+      {label}
+      {right}
+    </View>
   );
 }
 

@@ -3,20 +3,40 @@
 // Performer entry points (invisible to spectators):
 //   - long-press "Emergency" → Setup
 //   - after unlock, long-press (2s) the screen → Peek
+//
+// Real iPhone flow: waking the screen shows a plain lock screen (clock, date,
+// nothing else) — the passcode keypad only appears after a swipe up. This
+// screen mirrors that: `revealed` gates the passcode UI behind a swipe-up
+// gesture on the plain lock screen, and resets whenever a fresh session
+// starts (first load, or "New Session" from Peek) so each new spectator sees
+// the same real-feeling wake → swipe → passcode sequence.
 
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Redirect, useFocusEffect, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import Animated, { FadeIn, SlideOutUp } from "react-native-reanimated";
+import { Directions, Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  Easing,
+  FadeIn,
+  SlideInUp,
+  SlideOutUp,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
+import { runOnJS } from "react-native-worklets";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth/AuthContext";
 import { Keypad } from "@/src/components/Keypad";
 import { PasscodeDots } from "@/src/components/PasscodeDots";
+import { Symbol } from "@/src/components/Symbol";
 import { UnlockedView } from "@/src/components/UnlockedView";
 import { resolveWallpaper } from "@/src/components/wallpapers";
 import { backspace, createSession, inputDigit } from "@/src/engine/engine";
@@ -26,7 +46,7 @@ import {
   setCurrentSession,
 } from "@/src/engine/sessionStore";
 import type { Session } from "@/src/engine/types";
-import { makeStyles } from "@/src/theme";
+import { makeStyles, useTheme } from "@/src/theme";
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MONTHS = [
@@ -43,8 +63,36 @@ function dateLabel(d: Date): string {
   return `${WEEKDAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
 
+// Small bouncing chevron — the same "there's more above" affordance real
+// lock screens use to hint at the swipe-up gesture.
+function SwipeHint({ color }: { color: string }) {
+  const offset = useSharedValue(0);
+
+  useEffect(() => {
+    offset.value = withRepeat(
+      withSequence(
+        withTiming(-8, { duration: 550 }),
+        withTiming(0, { duration: 550 }),
+      ),
+      -1,
+      true,
+    );
+  }, [offset]);
+
+  const style = useAnimatedStyle(() => ({
+    transform: [{ translateY: offset.value }],
+  }));
+
+  return (
+    <Animated.View style={style}>
+      <Symbol name="chevron.up" fallback="" size={22} color={color} />
+    </Animated.View>
+  );
+}
+
 export default function PerformanceScreen() {
   const styles = useStyles();
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { profile } = useAuth();
@@ -53,6 +101,7 @@ export default function PerformanceScreen() {
   const [dots, setDots] = useState(0);
   const [shakeSignal, setShakeSignal] = useState(0);
   const [now, setNow] = useState(() => new Date());
+  const [revealed, setRevealed] = useState(false);
   const sessionRef = useRef<Session | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const unlockTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -93,6 +142,29 @@ export default function PerformanceScreen() {
     const timer = setInterval(() => setNow(new Date()), 15000);
     return () => clearInterval(timer);
   }, []);
+
+  // Each fresh session (first load, or "New Session" from Peek) gets its own
+  // new session id — re-arm the swipe-up gate so it plays out again.
+  useEffect(() => {
+    setRevealed(false);
+  }, [session?.id]);
+
+  const reveal = useCallback(() => {
+    setRevealed(true);
+    if (sessionRef.current?.config.haptics) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  }, []);
+
+  const swipeUpGesture = useMemo(
+    () =>
+      Gesture.Fling()
+        .direction(Directions.UP)
+        .onEnd(() => {
+          runOnJS(reveal)();
+        }),
+    [reveal],
+  );
 
   useEffect(
     () => () => {
@@ -178,9 +250,49 @@ export default function PerformanceScreen() {
           />
         </Animated.View>
       )}
-      {!unlocked && (
+      {!revealed && (
+        <GestureDetector gesture={swipeUpGesture}>
+          <Animated.View
+            key="prelock"
+            entering={FadeIn.duration(300)}
+            exiting={SlideOutUp.duration(380).easing(Easing.in(Easing.cubic))}
+            style={[
+              StyleSheet.absoluteFill,
+              styles.container,
+              styles.preLockLayout,
+              { paddingTop: insets.top, paddingBottom: insets.bottom + 24 },
+            ]}
+          >
+            <Image
+              testID="lock-wallpaper"
+              source={resolveWallpaper(session.config.lockWallpaper)}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+            />
+            <LinearGradient
+              colors={["rgba(5,5,8,0.25)", "rgba(5,5,8,0.15)", "rgba(5,5,8,0.55)"]}
+              style={StyleSheet.absoluteFill}
+            />
+
+            <View style={styles.preLockTop}>
+              <Text testID="lock-clock" style={styles.clock}>
+                {timeLabel(now)}
+              </Text>
+              <Text testID="lock-date" style={styles.date}>
+                {dateLabel(now)}
+              </Text>
+            </View>
+            <View style={styles.preLockHint}>
+              <SwipeHint color={colors.onSurface} />
+              <Text style={styles.hintText}>Swipe up to open</Text>
+            </View>
+          </Animated.View>
+        </GestureDetector>
+      )}
+      {revealed && !unlocked && (
         <Animated.View
           key="lock"
+          entering={SlideInUp.duration(420).easing(Easing.out(Easing.cubic))}
           exiting={SlideOutUp.duration(420)}
           style={[
             StyleSheet.absoluteFill,
@@ -222,6 +334,7 @@ export default function PerformanceScreen() {
               onDigit={handleDigit}
               onDelete={handleDelete}
               canDelete={session.buffer.length > 0}
+              onCancel={() => setRevealed(false)}
               onSecretSetup={() => router.push("/setup")}
               hapticsEnabled={session.config.haptics}
               soundsEnabled={session.config.sounds}
@@ -271,5 +384,22 @@ const useStyles = makeStyles((colors) => ({
   bottom: {
     flex: 1.35,
     justifyContent: "flex-start",
+  },
+  preLockLayout: {
+    justifyContent: "space-between",
+  },
+  preLockTop: {
+    alignItems: "center",
+    paddingTop: 28,
+  },
+  preLockHint: {
+    alignItems: "center",
+    gap: 6,
+  },
+  hintText: {
+    fontSize: 13,
+    color: colors.onSurface,
+    opacity: 0.8,
+    letterSpacing: 0.2,
   },
 }));

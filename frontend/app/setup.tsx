@@ -383,6 +383,7 @@ function SetupScreenInner() {
                 testID={`accordion-mode-${m.toLowerCase()}`}
                 title={MODE_TITLES[m]}
                 description={MODE_DESCRIPTIONS[m]}
+                active={active}
                 icon={
                   <Symbol
                     name={MODE_ICONS[m]}
@@ -483,7 +484,7 @@ function SetupScreenInner() {
           <AccordionItem
             testID="accordion-wallpaper"
             title="Home Screen Wallpaper"
-            description="Pick what appears on the simulated home screen right after it 'unlocks'."
+            description="What appears right after it 'unlocks'. Upload a screenshot of your own real home screen for a perfect match — real photos show full-screen with no simulated icons. Presets fall back to a simulated icon grid."
             icon={<Symbol name="photo" fallback="" size={18} color={colors.brandPrimary} />}
           >
             <WallpaperPicker

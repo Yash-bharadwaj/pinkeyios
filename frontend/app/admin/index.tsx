@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useFocusEffect, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, Share, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
@@ -31,11 +31,16 @@ import { RevenueChart } from "@/src/components/ui/RevenueChart";
 import { ScreenHeader } from "@/src/components/ui/ScreenHeader";
 import { Sheet, SheetItem } from "@/src/components/ui/Sheet";
 import { Symbol } from "@/src/components/Symbol";
-import { CURRENCY_SYMBOL } from "@/src/constants/currency";
+import { CURRENCY_SYMBOL, convertAmount, formatMoney } from "@/src/constants/currency";
 import { ThemeScheme, useTheme } from "@/src/theme";
 import { expiryInfo } from "@/src/utils/expiry";
+import { fetchUsdInrRate } from "@/src/utils/exchangeRate";
 import { generatePassword } from "@/src/utils/password";
 import { buildAccessMessage } from "@/src/utils/shareMessage";
+import { storage } from "@/src/utils/storage";
+
+const DISPLAY_CURRENCY_KEY = "pinkey.admin_display_currency";
+type DisplayCurrency = "USD" | "INR";
 
 export default function AdminDashboard() {
   return (
@@ -66,6 +71,19 @@ function AdminDashboardInner() {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
+  // The admin's preferred currency for the revenue totals — remembered
+  // across sessions, defaults to USD.
+  const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>("USD");
+  useEffect(() => {
+    storage.getItem<DisplayCurrency>(DISPLAY_CURRENCY_KEY, "USD").then((v) => {
+      if (v === "USD" || v === "INR") setDisplayCurrency(v);
+    });
+  }, []);
+  const chooseDisplayCurrency = (c: DisplayCurrency) => {
+    setDisplayCurrency(c);
+    storage.setItem(DISPLAY_CURRENCY_KEY, c);
+  };
+
   const copyField = async (fieldId: string, value: string) => {
     await Clipboard.setStringAsync(value);
     setCopiedField(fieldId);
@@ -76,6 +94,15 @@ function AdminDashboardInner() {
   const summaryQuery = useQuery({ queryKey: ["admin", "summary"], queryFn: adminSalesSummary });
   const insightsQuery = useQuery({ queryKey: ["admin", "insights"], queryFn: adminSalesInsights });
   const requestsQuery = useQuery({ queryKey: ["admin", "device-requests"], queryFn: adminListDeviceRequests });
+  // Live USD→INR rate for the toggle — cached for an hour so switching the
+  // toggle back and forth doesn't refetch, but never so long it goes stale.
+  const rateQuery = useQuery({
+    queryKey: ["fx", "usd-inr"],
+    queryFn: fetchUsdInrRate,
+    staleTime: 60 * 60 * 1000,
+    retry: 1,
+  });
+  const usdToInrRate = rateQuery.data ?? null;
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -248,6 +275,26 @@ function AdminDashboardInner() {
   const insights = insightsQuery.data;
   const pendingRequests = requestsQuery.data?.requests ?? [];
 
+  // Combined revenue in the admin's chosen display currency. Currencies that
+  // can't be honestly converted (not USD/INR, or the live rate hasn't loaded
+  // yet) are called out separately rather than folded into the total.
+  const revenueTotal = useMemo(() => {
+    if (!summary) return null;
+    let total = 0;
+    let hasConverted = false;
+    const unconverted: { currency: string; amount: number }[] = [];
+    for (const [cur, v] of Object.entries(summary.by_currency)) {
+      const converted = convertAmount(v.total, cur, displayCurrency, usdToInrRate);
+      if (converted === null) {
+        unconverted.push({ currency: cur, amount: v.total });
+      } else {
+        total += converted;
+        hasConverted = true;
+      }
+    }
+    return { total, hasConverted, unconverted };
+  }, [summary, displayCurrency, usdToInrRate]);
+
   const allUsers = usersQuery.data?.users ?? [];
   const q = search.trim().toLowerCase();
   const visibleUsers = allUsers.filter((u) => {
@@ -314,14 +361,39 @@ function AdminDashboardInner() {
         }
       >
         {/* Revenue summary */}
-        <SectionLabel>Revenue</SectionLabel>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+        <SectionLabel right={<CurrencyToggle value={displayCurrency} onChange={chooseDisplayCurrency} />}>
+          Revenue
+        </SectionLabel>
+
+        {summary && Object.keys(summary.by_currency).length > 0 && (
+          <Card testID="summary-total">
+            <Text
+              testID="summary-total-amount"
+              style={{ fontSize: 32, fontWeight: "700", color: colors.onSurface, fontVariant: ["tabular-nums"] }}
+            >
+              {revenueTotal?.hasConverted ? formatMoney(revenueTotal.total, displayCurrency) : "—"}
+            </Text>
+            <Text style={{ fontSize: 12, color: colors.muted, marginTop: 4 }}>
+              Total revenue in {displayCurrency}
+              {!usdToInrRate && rateQuery.isFetching ? " · loading live rate…" : ""}
+              {!usdToInrRate && !rateQuery.isFetching && rateQuery.isError ? " · live rate unavailable, showing native totals only" : ""}
+            </Text>
+            {!!revenueTotal?.unconverted.length && (
+              <Text style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>
+                {revenueTotal.unconverted
+                  .map((u) => `+ ${formatMoney(u.amount, u.currency)} ${u.currency} not included`)
+                  .join(" · ")}
+              </Text>
+            )}
+          </Card>
+        )}
+
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: summary && Object.keys(summary.by_currency).length > 0 ? 10 : 0 }}>
           {summary &&
             Object.entries(summary.by_currency).map(([cur, v]) => (
               <Card key={cur} testID={`summary-${cur}`} style={{ flexGrow: 1, minWidth: "45%" }}>
-                <Text style={{ fontSize: 26, fontWeight: "700", color: colors.onSurface, fontVariant: ["tabular-nums"] }}>
-                  {CURRENCY_SYMBOL[cur] ?? ""}
-                  {v.total.toLocaleString()}
+                <Text style={{ fontSize: 20, fontWeight: "700", color: colors.onSurface, fontVariant: ["tabular-nums"] }}>
+                  {formatMoney(v.total, cur)}
                 </Text>
                 <Text style={{ fontSize: 12, color: colors.muted, marginTop: 4 }}>
                   {cur} · {v.count} sales
@@ -908,5 +980,45 @@ function Stat({ label, value }: { label: string; value: number }) {
       </Text>
       <Text style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>{label}</Text>
     </Card>
+  );
+}
+
+function CurrencyToggle({
+  value,
+  onChange,
+}: {
+  value: "USD" | "INR";
+  onChange: (c: "USD" | "INR") => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <View style={{ flexDirection: "row", gap: 4, backgroundColor: colors.surfaceTertiary, borderRadius: 10, padding: 3 }}>
+      {(["USD", "INR"] as const).map((c) => {
+        const active = value === c;
+        return (
+          <Pressable
+            key={c}
+            testID={`display-currency-${c}`}
+            onPress={() => onChange(c)}
+            style={{
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: 8,
+              backgroundColor: active ? colors.brandPrimary : "transparent",
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 12,
+                fontWeight: "700",
+                color: active ? colors.onBrandPrimary : colors.muted,
+              }}
+            >
+              {c}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
