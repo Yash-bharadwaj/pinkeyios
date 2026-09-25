@@ -2,6 +2,7 @@
 // unlocked screen. Shows the reconstructed session at a single glance.
 
 import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -9,9 +10,18 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { createSession, getPeek } from "@/src/engine/engine";
 import { getCurrentSession, setCurrentSession } from "@/src/engine/sessionStore";
 import type { PeekData } from "@/src/engine/types";
-import { makeStyles } from "@/src/theme";
+import { ThemeScheme, makeStyles } from "@/src/theme";
 
 export default function PeekScreen() {
+  return (
+    <ThemeScheme scheme="light">
+      <StatusBar style="dark" />
+      <PeekScreenInner />
+    </ThemeScheme>
+  );
+}
+
+function PeekScreenInner() {
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   const router = useRouter();

@@ -4,8 +4,11 @@
 //   - long-press "Emergency" → Setup
 //   - after unlock, long-press (2s) the screen → Peek
 
+import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import { Redirect, useFocusEffect, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
+import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import Animated, { FadeIn, SlideOutUp } from "react-native-reanimated";
@@ -15,6 +18,7 @@ import { useAuth } from "@/src/auth/AuthContext";
 import { Keypad } from "@/src/components/Keypad";
 import { PasscodeDots } from "@/src/components/PasscodeDots";
 import { UnlockedView } from "@/src/components/UnlockedView";
+import { resolveWallpaper } from "@/src/components/wallpapers";
 import { backspace, createSession, inputDigit } from "@/src/engine/engine";
 import {
   getCurrentSession,
@@ -159,10 +163,12 @@ export default function PerformanceScreen() {
 
   return (
     <View testID="performance-screen" style={styles.container}>
+      {/* Real device status bar, not a hand-drawn one — just make it light so
+          it reads clearly over the dark wallpaper scrim. */}
+      <StatusBar style="light" />
       {unlocked && (
         <Animated.View key="home" entering={FadeIn.duration(380)} style={styles.flex}>
           <UnlockedView
-            timeLabel={timeLabel(now)}
             wallpaper={session.config.wallpaper}
             onPeek={() => {
               if (session.config.haptics)
@@ -182,6 +188,17 @@ export default function PerformanceScreen() {
             { paddingTop: insets.top, paddingBottom: insets.bottom + 8 },
           ]}
         >
+          <Image
+            testID="lock-wallpaper"
+            source={resolveWallpaper(session.config.lockWallpaper)}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+          />
+          <LinearGradient
+            colors={["rgba(5,5,8,0.3)", "rgba(5,5,8,0.35)", "rgba(5,5,8,0.7)"]}
+            style={StyleSheet.absoluteFill}
+          />
+
           <View style={styles.top}>
             <Text testID="lock-clock" style={styles.clock}>
               {timeLabel(now)}

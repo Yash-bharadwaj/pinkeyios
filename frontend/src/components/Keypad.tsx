@@ -6,6 +6,7 @@ import { createAudioPlayer } from "expo-audio";
 import { useCallback } from "react";
 import { Pressable, Text, View } from "react-native";
 import Animated, {
+  interpolateColor,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -65,8 +66,11 @@ function Key({
   const fill = useSharedValue(0);
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
-    backgroundColor:
-      fill.value === 0 ? "rgba(245,245,245,0)" : `rgba(245,245,245,${0.16 * fill.value})`,
+    // interpolateColor (not a hand-built rgba template string) is the safe
+    // way to animate a color in a worklet — a manually interpolated string
+    // can hand Reanimated's native color parser a value it rejects
+    // ("Invalid color value") once the alpha channel isn't a clean decimal.
+    backgroundColor: interpolateColor(fill.value, [0, 1], ["rgba(245,245,245,0)", "rgba(245,245,245,0.16)"]),
   }));
   return (
     <Pressable

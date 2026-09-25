@@ -10,7 +10,8 @@ import uuid
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from calendar import month_abbr
 
 from firebase_client import (
     init_firebase,
@@ -52,6 +53,7 @@ class CreateUserRequest(BaseModel):
     currency: str = "USD"
     is_free: bool = False
     note: str = ""
+    duration_days: Optional[int] = None  # None = perpetual license
 
 
 class ActivateLicenseRequest(BaseModel):
@@ -74,6 +76,15 @@ class UpdateSaleRequest(BaseModel):
     is_free: Optional[bool] = None
     refunded: Optional[bool] = None
     note: Optional[str] = None
+
+
+class SetExpiryRequest(BaseModel):
+    duration_days: Optional[int] = None  # None clears the expiry (perpetual)
+
+
+class RequestDeviceChangeRequest(BaseModel):
+    device_id: str
+    device_name: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +127,23 @@ def generate_license_key() -> str:
     return "PINK-" + "-".join(groups)
 
 
+def is_expired(license_doc: dict) -> bool:
+    expires_at = license_doc.get("expires_at")
+    if not expires_at:
+        return False
+    return datetime.now(timezone.utc) >= datetime.fromisoformat(expires_at)
+
+
+def effective_license_status(license_doc: dict | None) -> str | None:
+    """The license's status as the gate should see it — expiry overrides a
+    stored 'active' status without needing a background job."""
+    if not license_doc:
+        return None
+    if license_doc.get("status") == "active" and is_expired(license_doc):
+        return "expired"
+    return license_doc.get("status")
+
+
 async def audit(actor_uid: str, action: str, target: str = "", meta: dict | None = None):
     await db.audit.insert_one(
         {
@@ -139,6 +167,7 @@ async def build_user_view(user_doc: dict) -> dict:
         d.pop("_id", None)
     if license_doc:
         license_doc.pop("_id", None)
+        license_doc["effective_status"] = effective_license_status(license_doc)
     if sale:
         sale.pop("_id", None)
     return {
@@ -151,6 +180,9 @@ async def build_user_view(user_doc: dict) -> dict:
         "license": license_doc,
         "devices": devices,
         "sale": sale,
+        # Deliberately stored in readable form so the admin can re-share it —
+        # see admin_create_user / admin_reset_password for where it's set.
+        "current_password": user_doc.get("current_password"),
     }
 
 
@@ -170,14 +202,17 @@ async def me(user: dict = Depends(current_user)):
     device_count = await db.devices.count_documents({"uid": uid})
     gate = "open"
     reason = ""
+    status = effective_license_status(license_doc)
     if user.get("role") == "admin":
         gate = "open"
     elif not license_doc:
         gate, reason = "blocked", "no_license"
-    elif license_doc.get("status") == "revoked":
+    elif status == "revoked":
         gate, reason = "blocked", "revoked"
-    elif license_doc.get("status") == "suspended":
+    elif status == "suspended":
         gate, reason = "blocked", "suspended"
+    elif status == "expired":
+        gate, reason = "blocked", "expired"
     elif device_count == 0:
         gate, reason = "needs_activation", "not_activated"
     return {
@@ -187,7 +222,7 @@ async def me(user: dict = Depends(current_user)):
         "role": user.get("role"),
         "gate": gate,
         "reason": reason,
-        "license_status": license_doc.get("status") if license_doc else None,
+        "license_status": status,
     }
 
 
@@ -200,8 +235,9 @@ async def activate_license(req: ActivateLicenseRequest, user: dict = Depends(cur
         raise HTTPException(status_code=404, detail="License key not found")
     if license_doc.get("uid") != uid:
         raise HTTPException(status_code=403, detail="This license belongs to another account")
-    if license_doc.get("status") != "active":
-        raise HTTPException(status_code=403, detail=f"License is {license_doc.get('status')}")
+    status = effective_license_status(license_doc)
+    if status != "active":
+        raise HTTPException(status_code=403, detail=f"License is {status}")
 
     max_devices = license_doc.get("max_devices", 1)
     existing = await db.devices.find({"license_id": license_doc["id"]}).to_list(10)
@@ -211,7 +247,7 @@ async def activate_license(req: ActivateLicenseRequest, user: dict = Depends(cur
     if len(existing) >= max_devices:
         raise HTTPException(
             status_code=409,
-            detail="This license is already active on another device. Contact your seller to move it.",
+            detail="This license is already active on another device. Request a device change from the app, or contact your seller to move it.",
         )
     await db.devices.insert_one(
         {
@@ -236,8 +272,9 @@ async def license_status(req: LicenseStatusRequest, user: dict = Depends(current
     license_doc = await db.licenses.find_one({"uid": uid})
     if not license_doc:
         return {"valid": False, "gate": "blocked", "reason": "no_license"}
-    if license_doc.get("status") != "active":
-        return {"valid": False, "gate": "blocked", "reason": license_doc.get("status")}
+    status = effective_license_status(license_doc)
+    if status != "active":
+        return {"valid": False, "gate": "blocked", "reason": status}
     device = await db.devices.find_one({"uid": uid, "device_id": req.device_id})
     if not device:
         return {"valid": False, "gate": "needs_activation", "reason": "device_not_bound"}
@@ -259,9 +296,9 @@ async def admin_list_users(admin: dict = Depends(require_admin), limit: int = 10
 async def admin_create_user(req: CreateUserRequest, admin: dict = Depends(require_admin)):
     email = req.email.lower().strip()
     if await db.users.find_one({"email": email}):
-        raise HTTPException(status_code=409, detail="A user with this email already exists")
+        raise HTTPException(status_code=409, detail="That email already exists. Try a different email.")
     if get_user_by_email(email):
-        raise HTTPException(status_code=409, detail="This email is already registered in Firebase")
+        raise HTTPException(status_code=409, detail="That email already exists. Try a different email.")
 
     uid = create_firebase_user(email, req.password, req.name)
     set_role_claim(uid, "performer")
@@ -275,10 +312,16 @@ async def admin_create_user(req: CreateUserRequest, admin: dict = Depends(requir
             "status": "active",
             "created_at": created_at,
             "created_by": admin["id"],
+            "current_password": req.password,
         }
     )
     license_id = str(uuid.uuid4())
     key = generate_license_key()
+    expires_at = (
+        (datetime.now(timezone.utc) + timedelta(days=req.duration_days)).isoformat()
+        if req.duration_days
+        else None
+    )
     await db.licenses.insert_one(
         {
             "id": license_id,
@@ -288,6 +331,7 @@ async def admin_create_user(req: CreateUserRequest, admin: dict = Depends(requir
             "max_devices": 1,
             "note": req.note,
             "created_at": created_at,
+            "expires_at": expires_at,
         }
     )
     amount = 0.0 if req.is_free else float(req.price)
@@ -325,6 +369,7 @@ async def admin_reset_password(uid: str, req: ResetPasswordRequest, admin: dict 
     if not await db.users.find_one({"id": uid, "role": "performer"}):
         raise HTTPException(status_code=404, detail="User not found")
     set_user_password(uid, req.password)
+    await db.users.update_one({"id": uid}, {"$set": {"current_password": req.password}})
     await audit(admin["id"], "user.reset_password", uid)
     return {"ok": True}
 
@@ -338,8 +383,13 @@ async def admin_delete_user(uid: str, admin: dict = Depends(require_admin)):
         delete_firebase_user(uid)
     except Exception as e:  # noqa: BLE001
         logger.warning("firebase delete_user failed for %s: %s", uid, e)
-    # Soft-delete profile, hard-remove device bindings so a re-issued license is clean.
-    await db.users.update_one({"id": uid}, {"$set": {"status": "deleted", "deleted_at": now_iso()}})
+    # Soft-delete profile, hard-remove device bindings so a re-issued license is
+    # clean. The account is gone in Firebase either way, so the stored password
+    # is no longer useful — drop it rather than let it sit around.
+    await db.users.update_one(
+        {"id": uid},
+        {"$set": {"status": "deleted", "deleted_at": now_iso()}, "$unset": {"current_password": ""}},
+    )
     await db.licenses.update_many({"uid": uid}, {"$set": {"status": "revoked"}})
     await db.devices.delete_many({"uid": uid})
     await audit(admin["id"], "user.delete", uid)
@@ -368,6 +418,114 @@ async def admin_unbind_devices(license_id: str, admin: dict = Depends(require_ad
     return {"ok": True, "removed": result.deleted_count}
 
 
+@api_router.patch("/admin/licenses/{license_id}/expiry")
+async def admin_set_expiry(license_id: str, req: SetExpiryRequest, admin: dict = Depends(require_admin)):
+    license_doc = await db.licenses.find_one({"id": license_id})
+    if not license_doc:
+        raise HTTPException(status_code=404, detail="License not found")
+    expires_at = (
+        (datetime.now(timezone.utc) + timedelta(days=req.duration_days)).isoformat()
+        if req.duration_days
+        else None
+    )
+    await db.licenses.update_one({"id": license_id}, {"$set": {"expires_at": expires_at}})
+    await audit(admin["id"], "license.set_expiry", license_id, {"duration_days": req.duration_days})
+    return {"ok": True, "expires_at": expires_at}
+
+
+# ---------------------------------------------------------------------------
+# Device change requests — a magician asks to move their license to a new
+# device; the admin approves with one tap from the dashboard.
+# ---------------------------------------------------------------------------
+@api_router.post("/license/request-device-change")
+async def request_device_change(req: RequestDeviceChangeRequest, user: dict = Depends(current_user)):
+    uid = user["id"]
+    license_doc = await db.licenses.find_one({"uid": uid})
+    if not license_doc:
+        raise HTTPException(status_code=404, detail="No license found for this account")
+    if license_doc.get("status") == "revoked":
+        raise HTTPException(status_code=403, detail="This license has been revoked")
+    # Only one open request per license at a time — replace any prior pending one.
+    await db.device_requests.update_many(
+        {"license_id": license_doc["id"], "status": "pending"},
+        {"$set": {"status": "superseded", "resolved_at": now_iso()}},
+    )
+    request_id = str(uuid.uuid4())
+    await db.device_requests.insert_one(
+        {
+            "id": request_id,
+            "uid": uid,
+            "license_id": license_doc["id"],
+            "device_id": req.device_id,
+            "device_name": req.device_name,
+            "status": "pending",
+            "created_at": now_iso(),
+        }
+    )
+    await audit(uid, "device_request.create", request_id, {"device_id": req.device_id})
+    return {"ok": True, "request_id": request_id}
+
+
+@api_router.get("/admin/device-requests")
+async def admin_list_device_requests(admin: dict = Depends(require_admin)):
+    docs = await db.device_requests.find({"status": "pending"}).sort("created_at", -1).to_list(50)
+    out = []
+    for d in docs:
+        d.pop("_id", None)
+        user_doc = await db.users.find_one({"id": d["uid"]})
+        license_doc = await db.licenses.find_one({"id": d["license_id"]})
+        out.append(
+            {
+                **d,
+                "email": user_doc.get("email") if user_doc else None,
+                "license_key": license_doc.get("key") if license_doc else None,
+            }
+        )
+    return {"requests": out}
+
+
+@api_router.post("/admin/device-requests/{request_id}/approve")
+async def admin_approve_device_request(request_id: str, admin: dict = Depends(require_admin)):
+    req_doc = await db.device_requests.find_one({"id": request_id})
+    if not req_doc:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req_doc.get("status") != "pending":
+        raise HTTPException(status_code=409, detail="Request already resolved")
+    license_id = req_doc["license_id"]
+    await db.devices.delete_many({"license_id": license_id})
+    await db.devices.insert_one(
+        {
+            "id": str(uuid.uuid4()),
+            "license_id": license_id,
+            "uid": req_doc["uid"],
+            "device_id": req_doc["device_id"],
+            "device_name": req_doc.get("device_name", ""),
+            "bound_at": now_iso(),
+        }
+    )
+    await db.device_requests.update_one(
+        {"id": request_id},
+        {"$set": {"status": "approved", "resolved_at": now_iso(), "resolved_by": admin["id"]}},
+    )
+    await audit(admin["id"], "device_request.approve", request_id, {"license_id": license_id})
+    return {"ok": True}
+
+
+@api_router.post("/admin/device-requests/{request_id}/deny")
+async def admin_deny_device_request(request_id: str, admin: dict = Depends(require_admin)):
+    req_doc = await db.device_requests.find_one({"id": request_id})
+    if not req_doc:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req_doc.get("status") != "pending":
+        raise HTTPException(status_code=409, detail="Request already resolved")
+    await db.device_requests.update_one(
+        {"id": request_id},
+        {"$set": {"status": "denied", "resolved_at": now_iso(), "resolved_by": admin["id"]}},
+    )
+    await audit(admin["id"], "device_request.deny", request_id)
+    return {"ok": True}
+
+
 @api_router.patch("/admin/sales/{sale_id}")
 async def admin_update_sale(sale_id: str, req: UpdateSaleRequest, admin: dict = Depends(require_admin)):
     sale = await db.sales.find_one({"id": sale_id})
@@ -392,20 +550,28 @@ async def admin_update_sale(sale_id: str, req: UpdateSaleRequest, admin: dict = 
     return {"ok": True}
 
 
+async def active_performer_uids() -> list[str]:
+    """Sales/license rows outlive a soft-deleted user for audit purposes, but
+    admin-facing aggregates must never count them — otherwise a deleted
+    account's old sale keeps inflating totals forever."""
+    return [u["id"] async for u in db.users.find({"status": {"$ne": "deleted"}}, {"id": 1})]
+
+
 @api_router.get("/admin/sales/summary")
 async def admin_sales_summary(admin: dict = Depends(require_admin)):
+    uids = await active_performer_uids()
     pipeline = [
-        {"$match": {"refunded": {"$ne": True}, "is_free": {"$ne": True}}},
+        {"$match": {"uid": {"$in": uids}, "refunded": {"$ne": True}, "is_free": {"$ne": True}}},
         {"$group": {"_id": "$currency", "total": {"$sum": "$amount"}, "count": {"$sum": 1}}},
     ]
     by_currency = {}
     async for row in db.sales.aggregate(pipeline):
         by_currency[row["_id"] or "USD"] = {"total": round(row["total"], 2), "count": row["count"]}
     total_users = await db.users.count_documents({"role": "performer", "status": {"$ne": "deleted"}})
-    free_count = await db.sales.count_documents({"is_free": True})
-    paid_count = await db.sales.count_documents({"is_free": {"$ne": True}, "refunded": {"$ne": True}})
-    refunded_count = await db.sales.count_documents({"refunded": True})
-    active_licenses = await db.licenses.count_documents({"status": "active"})
+    free_count = await db.sales.count_documents({"uid": {"$in": uids}, "is_free": True})
+    paid_count = await db.sales.count_documents({"uid": {"$in": uids}, "is_free": {"$ne": True}, "refunded": {"$ne": True}})
+    refunded_count = await db.sales.count_documents({"uid": {"$in": uids}, "refunded": True})
+    active_licenses = await db.licenses.count_documents({"uid": {"$in": uids}, "status": "active"})
     return {
         "by_currency": by_currency,
         "total_users": total_users,
@@ -414,6 +580,51 @@ async def admin_sales_summary(admin: dict = Depends(require_admin)):
         "refunded_count": refunded_count,
         "active_licenses": active_licenses,
     }
+
+
+@api_router.get("/admin/sales/insights")
+async def admin_sales_insights(admin: dict = Depends(require_admin), months: int = 12):
+    uids = await active_performer_uids()
+    now = datetime.now(timezone.utc)
+    # Build the last N calendar months (oldest first) as "YYYY-MM" keys.
+    month_keys: list[str] = []
+    y, m = now.year, now.month
+    for _ in range(months):
+        month_keys.append(f"{y:04d}-{m:02d}")
+        m -= 1
+        if m == 0:
+            m, y = 12, y - 1
+    month_keys.reverse()
+    earliest = month_keys[0] + "-01T00:00:00"
+
+    pipeline = [
+        {"$match": {"uid": {"$in": uids}, "refunded": {"$ne": True}, "is_free": {"$ne": True}, "created_at": {"$gte": earliest}}},
+        {"$addFields": {"month": {"$substrCP": ["$created_at", 0, 7]}}},
+        {
+            "$group": {
+                "_id": {"month": "$month", "currency": "$currency"},
+                "total": {"$sum": "$amount"},
+                "count": {"$sum": 1},
+            }
+        },
+    ]
+    by_month_currency: dict[str, dict[str, dict]] = {k: {} for k in month_keys}
+    all_entries: list[dict] = []
+    async for row in db.sales.aggregate(pipeline):
+        month = row["_id"]["month"]
+        currency = row["_id"]["currency"] or "USD"
+        entry = {"total": round(row["total"], 2), "count": row["count"]}
+        if month in by_month_currency:
+            by_month_currency[month][currency] = entry
+        all_entries.append({"month": month, "currency": currency, **entry})
+
+    monthly = [
+        {"month": k, "label": f"{month_abbr[int(k.split('-')[1])]}", "by_currency": by_month_currency[k]}
+        for k in month_keys
+    ]
+    top = sorted(all_entries, key=lambda e: e["total"], reverse=True)[:5]
+
+    return {"monthly": monthly, "top": top}
 
 
 app.include_router(api_router)

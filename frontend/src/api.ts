@@ -3,6 +3,14 @@ import { auth } from "@/src/firebase";
 
 const BASE = `${process.env.EXPO_PUBLIC_BACKEND_URL}/api`;
 
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function authHeader(): Promise<Record<string, string>> {
   const user = auth.currentUser;
   if (!user) return {};
@@ -21,7 +29,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
     const message = data?.detail ?? `Request failed (${res.status})`;
-    throw new Error(typeof message === "string" ? message : JSON.stringify(message));
+    throw new ApiError(typeof message === "string" ? message : JSON.stringify(message), res.status);
   }
   return data as T;
 }
@@ -41,9 +49,11 @@ export interface LicenseInfo {
   id: string;
   key: string;
   status: string;
+  effective_status?: string;
   max_devices: number;
   note: string;
   created_at: string;
+  expires_at: string | null;
 }
 
 export interface SaleInfo {
@@ -73,6 +83,9 @@ export interface AdminUser {
   license: LicenseInfo | null;
   devices: DeviceInfo[];
   sale: SaleInfo | null;
+  // Deliberately kept in readable form so the admin can re-share it — see
+  // the backend's admin_create_user / admin_reset_password for where it's set.
+  current_password: string | null;
 }
 
 export interface SalesSummary {
@@ -82,6 +95,36 @@ export interface SalesSummary {
   paid_count: number;
   refunded_count: number;
   active_licenses: number;
+}
+
+export interface MonthlyBucket {
+  month: string; // "YYYY-MM"
+  label: string; // "Jan"
+  by_currency: Record<string, { total: number; count: number }>;
+}
+
+export interface TopEntry {
+  month: string;
+  currency: string;
+  total: number;
+  count: number;
+}
+
+export interface SalesInsights {
+  monthly: MonthlyBucket[];
+  top: TopEntry[];
+}
+
+export interface DeviceRequest {
+  id: string;
+  uid: string;
+  license_id: string;
+  device_id: string;
+  device_name: string;
+  status: string;
+  created_at: string;
+  email: string | null;
+  license_key: string | null;
 }
 
 // ---- Performer ----------------------------------------------------------
@@ -99,6 +142,12 @@ export const licenseStatus = (deviceId: string) =>
     body: JSON.stringify({ device_id: deviceId }),
   });
 
+export const requestDeviceChange = (deviceId: string, deviceName: string) =>
+  request<{ ok: boolean; request_id: string }>("/license/request-device-change", {
+    method: "POST",
+    body: JSON.stringify({ device_id: deviceId, device_name: deviceName }),
+  });
+
 // ---- Admin --------------------------------------------------------------
 export const adminListUsers = () =>
   request<{ users: AdminUser[]; count: number }>("/admin/users");
@@ -111,6 +160,7 @@ export const adminCreateUser = (body: {
   currency: string;
   is_free: boolean;
   note: string;
+  duration_days: number | null;
 }) => request<{ uid: string; email: string; license_key: string }>("/admin/users", {
   method: "POST",
   body: JSON.stringify(body),
@@ -143,3 +193,20 @@ export const adminUpdateSale = (
 });
 
 export const adminSalesSummary = () => request<SalesSummary>("/admin/sales/summary");
+
+export const adminSalesInsights = () => request<SalesInsights>("/admin/sales/insights");
+
+export const adminSetExpiry = (licenseId: string, durationDays: number | null) =>
+  request<{ ok: boolean; expires_at: string | null }>(`/admin/licenses/${licenseId}/expiry`, {
+    method: "PATCH",
+    body: JSON.stringify({ duration_days: durationDays }),
+  });
+
+export const adminListDeviceRequests = () =>
+  request<{ requests: DeviceRequest[] }>("/admin/device-requests");
+
+export const adminApproveDeviceRequest = (requestId: string) =>
+  request<{ ok: boolean }>(`/admin/device-requests/${requestId}/approve`, { method: "POST" });
+
+export const adminDenyDeviceRequest = (requestId: string) =>
+  request<{ ok: boolean }>(`/admin/device-requests/${requestId}/deny`, { method: "POST" });

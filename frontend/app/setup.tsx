@@ -1,29 +1,62 @@
-// Performer Setup — premium command center (performer-only; brand gold allowed).
+// Performer Setup — premium command center (performer-only).
 // Configure mode, entry length, attempts, offsets, wallpaper, and feedback.
 
-import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
-import { Linking, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Symbol } from "@/src/components/Symbol";
+import { Accordion, AccordionItem } from "@/src/components/ui/Accordion";
+import { Button, IconButton } from "@/src/components/ui/Button";
+import { Chip, PillChip } from "@/src/components/ui/Chip";
+import { Input } from "@/src/components/ui/Input";
+import { ScreenHeader } from "@/src/components/ui/ScreenHeader";
+import { Stepper } from "@/src/components/ui/Stepper";
+import { Toggle } from "@/src/components/ui/Toggle";
+import { WallpaperPicker } from "@/src/components/ui/WallpaperPicker";
 import { useAuth } from "@/src/auth/AuthContext";
-import { WALLPAPER_PRESETS, isCustomWallpaper } from "@/src/components/wallpapers";
+import { WALLPAPER_PRESETS } from "@/src/components/wallpapers";
+import {
+  MAX_CUSTOM_WALLPAPERS,
+  loadCustomWallpapers,
+  saveCustomWallpapers,
+} from "@/src/engine/customWallpapers";
 import { buildAttempts, buildDefaultConfig } from "@/src/engine/defaults";
 import { createSession, transformValue } from "@/src/engine/engine";
 import { loadConfig, saveConfig, setCurrentSession } from "@/src/engine/sessionStore";
 import type { EntryLength, Mode, PerformanceConfig, ScriptStep, StepKind } from "@/src/engine/types";
-import { makeStyles } from "@/src/theme";
+import { ThemeScheme, useTheme } from "@/src/theme";
 
-const MODES: { key: Mode; title: string; subtitle: string }[] = [
-  { key: "BASIC", title: "Basic", subtitle: "Sequence of attempts" },
-  { key: "TRANSFORM", title: "Transform", subtitle: "Offset arithmetic" },
-  { key: "SCRAMBLE", title: "Scramble Peek", subtitle: "Non-linear positions" },
-  { key: "HYBRID", title: "Hybrid", subtitle: "Mixed routine" },
-];
+const MODE_ORDER: Mode[] = ["BASIC", "TRANSFORM", "SCRAMBLE", "HYBRID"];
+
+const MODE_TITLES: Record<Mode, string> = {
+  BASIC: "Basic",
+  TRANSFORM: "Transform",
+  SCRAMBLE: "Scramble Peek",
+  HYBRID: "Hybrid",
+};
+
+const MODE_DESCRIPTIONS: Record<Mode, string> = {
+  BASIC:
+    "A pre-planned sequence of attempts. Each attempt quietly captures one piece of information — their PIN, a birth date, a phone number — and you choose which attempt finally unlocks the phone. Once it starts, you never touch the screen; you just speak each instruction in order.",
+  TRANSFORM:
+    "The spectator never says their real PIN out loud. They add a preset offset to each digit and enter the result instead, creating the illusion you're altering their code with mental math. The moment it unlocks, PinKey reverses the math to reconstruct the original PIN.",
+  SCRAMBLE:
+    "Breaks the natural left-to-right order. Jump between digit positions, plant a deliberate delete as misdirection, and drop in meaningless filler digits — PinKey tracks every real entry regardless of order and reconstructs the full PIN.",
+  HYBRID:
+    "Combines every technique in one continuous routine — direct entries, offset math, decoy deletions, and fillers — for a single multi-layered reveal that uses all of it at once.",
+};
+
+const MODE_ICONS: Record<Mode, string> = {
+  BASIC: "list.number",
+  TRANSFORM: "arrow.left.arrow.right",
+  SCRAMBLE: "shuffle",
+  HYBRID: "square.stack.3d.up.fill",
+};
 
 const STEP_KINDS: { key: StepKind; label: string }[] = [
   { key: "direct", label: "Direct" },
@@ -44,7 +77,16 @@ function parseOffsets(text: string): number[] | null {
 }
 
 export default function SetupScreen() {
-  const styles = useStyles();
+  return (
+    <ThemeScheme scheme="light">
+      <StatusBar style="dark" />
+      <SetupScreenInner />
+    </ThemeScheme>
+  );
+}
+
+function SetupScreenInner() {
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { logout } = useAuth();
@@ -53,16 +95,18 @@ export default function SetupScreen() {
   const [offsetsText, setOffsetsText] = useState("");
   const [offsetsError, setOffsetsError] = useState("");
   const [wallpaperError, setWallpaperError] = useState("");
+  const [customWallpapers, setCustomWallpapers] = useState<string[]>([]);
 
   useEffect(() => {
     loadConfig().then((loaded) => {
       setConfig(loaded);
       setOffsetsText(loaded.offsets.join(","));
     });
+    loadCustomWallpapers().then(setCustomWallpapers);
   }, []);
 
   if (!config) {
-    return <View testID="setup-screen" style={styles.container} />;
+    return <View testID="setup-screen" style={{ flex: 1, backgroundColor: colors.surface }} />;
   }
 
   const switchMode = (mode: Mode) => {
@@ -72,6 +116,7 @@ export default function SetupScreen() {
       haptics: config.haptics,
       sounds: config.sounds,
       wallpaper: config.wallpaper,
+      lockWallpaper: config.lockWallpaper,
     });
     setOffsetsText(fresh.offsets.join(","));
     setOffsetsError("");
@@ -84,6 +129,7 @@ export default function SetupScreen() {
       haptics: config.haptics,
       sounds: config.sounds,
       wallpaper: config.wallpaper,
+      lockWallpaper: config.lockWallpaper,
     });
     setOffsetsText(fresh.offsets.join(","));
     setOffsetsError("");
@@ -146,10 +192,14 @@ export default function SetupScreen() {
     return { missing, dupes, ok: missing.length === 0 && dupes.length === 0 };
   })();
 
-  const pickWallpaperPhoto = async () => {
+  const pickWallpaperPhoto = async (target: "wallpaper" | "lockWallpaper") => {
     setWallpaperError("");
+    if (customWallpapers.length >= MAX_CUSTOM_WALLPAPERS) {
+      setWallpaperError(`You can add up to ${MAX_CUSTOM_WALLPAPERS} photos. Delete one to add another.`);
+      return;
+    }
     // Contextual permission flow: check → ask once (clear intent: performer
-    // tapped "Your Photo") → if blocked, offer Settings.
+    // tapped "Add Photo") → if blocked, offer Settings.
     let status = await ImagePicker.getMediaLibraryPermissionsAsync();
     if (!status.granted && status.canAskAgain) {
       status = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -165,8 +215,23 @@ export default function SetupScreen() {
       quality: 0.9,
     });
     if (!result.canceled && result.assets[0]?.uri) {
-      setConfig({ ...config, wallpaper: result.assets[0].uri });
+      const uri = result.assets[0].uri;
+      const next = [...customWallpapers, uri];
+      setCustomWallpapers(next);
+      await saveCustomWallpapers(next);
+      setConfig({ ...config, [target]: uri });
     }
+  };
+
+  const deleteCustomWallpaper = async (uri: string) => {
+    const next = customWallpapers.filter((w) => w !== uri);
+    setCustomWallpapers(next);
+    await saveCustomWallpapers(next);
+    setConfig({
+      ...config,
+      wallpaper: config.wallpaper === uri ? WALLPAPER_PRESETS[0].id : config.wallpaper,
+      lockWallpaper: config.lockWallpaper === uri ? WALLPAPER_PRESETS[0].id : config.lockWallpaper,
+    });
   };
 
   const start = async () => {
@@ -183,668 +248,306 @@ export default function SetupScreen() {
         )
       : null;
 
+  const scriptEditor = (
+    <View>
+      {config.script.map((step, i) => (
+        <View
+          key={i}
+          testID={`script-step-${i}`}
+          style={{
+            backgroundColor: colors.surfaceTertiary,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: colors.border,
+            padding: 12,
+            marginBottom: 10,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <Text style={{ fontSize: 13, fontWeight: "700", color: colors.muted, letterSpacing: 0.5 }}>
+              Step {i + 1}
+            </Text>
+            <IconButton testID={`script-remove-${i}`} onPress={() => removeStep(i)}>
+              <Symbol name="trash" fallback="🗑" size={18} color={colors.error} />
+            </IconButton>
+          </View>
+
+          {/* Kind chips */}
+          <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+            {STEP_KINDS.map((k) => (
+              <PillChip
+                key={k.key}
+                testID={`script-${i}-kind-${k.key}`}
+                label={k.label}
+                active={step.kind === k.key}
+                onPress={() => updateStep(i, { kind: k.key })}
+              />
+            ))}
+          </View>
+
+          {/* Position + offset controls */}
+          <View style={{ flexDirection: "row", gap: 20, marginTop: 12, alignItems: "center" }}>
+            {step.kind !== "filler" && (
+              <View style={{ gap: 6 }}>
+                <Text style={{ fontSize: 11, color: colors.muted }}>Position</Text>
+                <Stepper
+                  testIDBase={`script-${i}-pos`}
+                  size="sm"
+                  value={step.position}
+                  onDecrement={() => updateStep(i, { position: Math.max(1, step.position - 1) })}
+                  onIncrement={() =>
+                    updateStep(i, { position: Math.min(config.entryLength, step.position + 1) })
+                  }
+                />
+              </View>
+            )}
+            {step.kind === "transform" && (
+              <View style={{ gap: 6 }}>
+                <Text style={{ fontSize: 11, color: colors.muted }}>Offset +</Text>
+                <Stepper
+                  testIDBase={`script-${i}-off`}
+                  size="sm"
+                  value={step.offset}
+                  onDecrement={() => updateStep(i, { offset: Math.max(0, step.offset - 1) })}
+                  onIncrement={() => updateStep(i, { offset: Math.min(9, step.offset + 1) })}
+                />
+              </View>
+            )}
+            {step.kind === "filler" && (
+              <Text style={{ fontSize: 12, color: colors.muted, fontStyle: "italic" }}>
+                Ignored in reconstruction
+              </Text>
+            )}
+          </View>
+        </View>
+      ))}
+
+      <Pressable
+        testID="script-add-step"
+        onPress={addStep}
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+          paddingVertical: 12,
+          borderRadius: 10,
+          borderWidth: 1,
+          borderStyle: "dashed",
+          borderColor: colors.brandTertiary,
+        }}
+      >
+        <Symbol name="plus" fallback="+" size={16} color={colors.brandPrimary} />
+        <Text style={{ fontSize: 14, fontWeight: "600", color: colors.brandPrimary }}>Add step</Text>
+      </Pressable>
+
+      {coverage.ok ? (
+        <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 6, marginTop: 12 }}>
+          <Symbol name="checkmark.circle.fill" fallback="✓" size={14} color={colors.success} />
+          <Text testID="script-coverage-ok" style={{ flex: 1, fontSize: 12, color: colors.success, lineHeight: 18 }}>
+            All {config.entryLength} positions mapped once — reconstruction is complete.
+          </Text>
+        </View>
+      ) : (
+        <Text testID="script-coverage-warn" style={{ fontSize: 12, color: colors.warning, marginTop: 12, lineHeight: 18 }}>
+          {coverage.missing.length > 0 && `Positions ${coverage.missing.join(", ")} not yet mapped. `}
+          {coverage.dupes.length > 0 && `Positions ${coverage.dupes.join(", ")} mapped twice. `}
+          The Peek will show a dot for unmapped slots.
+        </Text>
+      )}
+    </View>
+  );
+
   return (
-    <View testID="setup-screen" style={[styles.container, { paddingTop: insets.top + 8 }]}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Performer Setup</Text>
-        <Pressable testID="setup-close-button" onPress={() => router.back()} hitSlop={12}>
-          <Symbol name="xmark.circle.fill" fallback="✕" size={26} color={styles.colors.muted} />
-        </Pressable>
-      </View>
+    <View testID="setup-screen" style={{ flex: 1, backgroundColor: colors.surface, paddingTop: insets.top }}>
+      <ScreenHeader
+        title="Performer Setup"
+        right={
+          <IconButton testID="setup-close-button" onPress={() => router.back()}>
+            <Symbol name="xmark.circle.fill" fallback="✕" size={24} color={colors.muted} />
+          </IconButton>
+        }
+      />
 
       <KeyboardAwareScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 32 }]}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 32 }}
         bottomOffset={24}
         keyboardShouldPersistTaps="handled"
       >
-        {/* MODE */}
-        <Text style={styles.sectionLabel}>ROUTINE MODE</Text>
-        <View style={styles.card}>
-          <View style={styles.chipGrid}>
-            {MODES.map((m) => {
-              const active = config.mode === m.key;
-              return (
-                <Pressable
-                  key={m.key}
-                  testID={`mode-chip-${m.key.toLowerCase()}`}
-                  style={[styles.chip, active && styles.chipActive]}
-                  onPress={() => switchMode(m.key)}
-                >
-                  <Text style={[styles.chipTitle, active && styles.chipTitleActive]}>
-                    {m.title}
-                  </Text>
-                  <Text style={[styles.chipSubtitle, active && styles.chipSubtitleActive]}>
-                    {m.subtitle}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
+        <Accordion>
+          {MODE_ORDER.map((m) => {
+            const active = config.mode === m;
+            return (
+              <AccordionItem
+                key={m}
+                testID={`accordion-mode-${m.toLowerCase()}`}
+                title={MODE_TITLES[m]}
+                description={MODE_DESCRIPTIONS[m]}
+                icon={
+                  <Symbol
+                    name={MODE_ICONS[m]}
+                    fallback=""
+                    size={18}
+                    color={active ? colors.brandPrimary : colors.muted}
+                  />
+                }
+              >
+                {!active ? (
+                  <Button
+                    testID={`select-mode-${m.toLowerCase()}`}
+                    label="Use This Mode"
+                    variant="secondary"
+                    onPress={() => switchMode(m)}
+                  />
+                ) : m === "BASIC" ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <View style={{ flex: 1, paddingRight: 12 }}>
+                      <Text style={{ fontSize: 16, color: colors.onSurfaceSecondary }}>Attempts</Text>
+                      <Text style={{ fontSize: 12, color: colors.muted, marginTop: 2 }}>
+                        {config.attempts.map((a) => a.label).join(" → ")}
+                      </Text>
+                    </View>
+                    <Stepper
+                      testIDBase="attempts"
+                      value={config.attempts.length}
+                      onDecrement={() => setAttemptCount(-1)}
+                      onIncrement={() => setAttemptCount(1)}
+                    />
+                  </View>
+                ) : m === "TRANSFORM" ? (
+                  <View>
+                    <Input
+                      testID="offsets-input"
+                      value={offsetsText}
+                      onChangeText={onChangeOffsets}
+                      placeholder="4,1,3,2"
+                      keyboardType="numbers-and-punctuation"
+                      autoCorrect={false}
+                      autoCapitalize="none"
+                      style={{ fontSize: 17, fontVariant: ["tabular-nums"] }}
+                      error={offsetsError || undefined}
+                    />
+                    {!!offsetsPreview && !offsetsError && (
+                      <Text testID="offsets-preview" style={{ fontSize: 12, color: colors.muted, marginTop: 10 }}>
+                        Preview: {config.entryLength === 4 ? "2749" : "274999"} → {offsetsPreview}
+                      </Text>
+                    )}
+                  </View>
+                ) : (
+                  scriptEditor
+                )}
+              </AccordionItem>
+            );
+          })}
 
-        {/* ENTRY LENGTH */}
-        <Text style={styles.sectionLabel}>ENTRY LENGTH</Text>
-        <View style={styles.card}>
-          <View style={styles.chipGrid}>
-            {LENGTHS.map((l) => {
-              const active = config.entryLength === l.key;
-              return (
-                <Pressable
+          <AccordionItem
+            testID="accordion-length"
+            title="Entry Length"
+            description="How many digits the spectator enters — a 4-digit PIN or a 6-digit birth date."
+            icon={<Symbol name="number" fallback="#" size={18} color={colors.brandPrimary} />}
+          >
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+              {LENGTHS.map((l) => (
+                <Chip
                   key={l.key}
                   testID={`length-chip-${l.key}`}
-                  style={[styles.chip, active && styles.chipActive]}
+                  title={l.title}
+                  subtitle={l.subtitle}
+                  active={config.entryLength === l.key}
                   onPress={() => switchLength(l.key)}
-                >
-                  <Text style={[styles.chipTitle, active && styles.chipTitleActive]}>
-                    {l.title}
-                  </Text>
-                  <Text style={[styles.chipSubtitle, active && styles.chipSubtitleActive]}>
-                    {l.subtitle}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        {/* MODE-SPECIFIC */}
-        {config.mode === "BASIC" && (
-          <>
-            <Text style={styles.sectionLabel}>ATTEMPTS BEFORE UNLOCK</Text>
-            <View style={styles.card}>
-              <View style={styles.row}>
-                <View style={styles.rowText}>
-                  <Text style={styles.rowTitle}>Attempts</Text>
-                  <Text style={styles.rowSubtitle}>
-                    {config.attempts.map((a) => a.label).join(" → ")}
-                  </Text>
-                </View>
-                <View style={styles.stepper}>
-                  <Pressable
-                    testID="attempts-minus"
-                    style={styles.stepperButton}
-                    onPress={() => setAttemptCount(-1)}
-                    hitSlop={8}
-                  >
-                    <Text style={styles.stepperLabel}>−</Text>
-                  </Pressable>
-                  <Text testID="attempts-count" style={styles.stepperCount}>
-                    {config.attempts.length}
-                  </Text>
-                  <Pressable
-                    testID="attempts-plus"
-                    style={styles.stepperButton}
-                    onPress={() => setAttemptCount(1)}
-                    hitSlop={8}
-                  >
-                    <Text style={styles.stepperLabel}>+</Text>
-                  </Pressable>
-                </View>
-              </View>
-            </View>
-          </>
-        )}
-
-        {config.mode === "TRANSFORM" && (
-          <>
-            <Text style={styles.sectionLabel}>POSITION OFFSETS</Text>
-            <View style={styles.card}>
-              <TextInput
-                testID="offsets-input"
-                style={styles.input}
-                value={offsetsText}
-                onChangeText={onChangeOffsets}
-                placeholder="4,1,3,2"
-                placeholderTextColor={styles.colors.muted}
-                keyboardType="numbers-and-punctuation"
-                autoCorrect={false}
-                autoCapitalize="none"
-              />
-              {!!offsetsError && (
-                <Text testID="offsets-error" style={styles.errorText}>
-                  {offsetsError}
-                </Text>
-              )}
-              {!!offsetsPreview && (
-                <Text testID="offsets-preview" style={styles.hintText}>
-                  Preview: {config.entryLength === 4 ? "2749" : "274999"} → {offsetsPreview}
-                </Text>
-              )}
-            </View>
-          </>
-        )}
-
-        {(config.mode === "SCRAMBLE" || config.mode === "HYBRID") && (
-          <>
-            <Text style={styles.sectionLabel}>ROUTINE SCRIPT</Text>
-            <View style={styles.card}>
-              {config.script.map((step, i) => (
-                <View key={i} style={styles.stepCard} testID={`script-step-${i}`}>
-                  <View style={styles.stepHeader}>
-                    <Text style={styles.stepNumber}>Step {i + 1}</Text>
-                    <Pressable
-                      testID={`script-remove-${i}`}
-                      onPress={() => removeStep(i)}
-                      hitSlop={10}
-                    >
-                      <Symbol name="trash" fallback="🗑" size={18} color={styles.colors.error} />
-                    </Pressable>
-                  </View>
-
-                  {/* Kind chips */}
-                  <View style={styles.kindRow}>
-                    {STEP_KINDS.map((k) => {
-                      const active = step.kind === k.key;
-                      return (
-                        <Pressable
-                          key={k.key}
-                          testID={`script-${i}-kind-${k.key}`}
-                          style={[styles.kindChip, active && styles.kindChipActive]}
-                          onPress={() => updateStep(i, { kind: k.key })}
-                        >
-                          <Text style={[styles.kindText, active && styles.kindTextActive]}>
-                            {k.label}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-
-                  {/* Position + offset controls */}
-                  <View style={styles.stepControls}>
-                    {step.kind !== "filler" && (
-                      <View style={styles.miniControl}>
-                        <Text style={styles.miniLabel}>Position</Text>
-                        <View style={styles.miniStepper}>
-                          <Pressable
-                            testID={`script-${i}-pos-minus`}
-                            style={styles.miniButton}
-                            onPress={() =>
-                              updateStep(i, {
-                                position: Math.max(1, step.position - 1),
-                              })
-                            }
-                            hitSlop={6}
-                          >
-                            <Text style={styles.miniButtonLabel}>−</Text>
-                          </Pressable>
-                          <Text style={styles.miniValue}>{step.position}</Text>
-                          <Pressable
-                            testID={`script-${i}-pos-plus`}
-                            style={styles.miniButton}
-                            onPress={() =>
-                              updateStep(i, {
-                                position: Math.min(config.entryLength, step.position + 1),
-                              })
-                            }
-                            hitSlop={6}
-                          >
-                            <Text style={styles.miniButtonLabel}>+</Text>
-                          </Pressable>
-                        </View>
-                      </View>
-                    )}
-                    {step.kind === "transform" && (
-                      <View style={styles.miniControl}>
-                        <Text style={styles.miniLabel}>Offset +</Text>
-                        <View style={styles.miniStepper}>
-                          <Pressable
-                            testID={`script-${i}-off-minus`}
-                            style={styles.miniButton}
-                            onPress={() => updateStep(i, { offset: Math.max(0, step.offset - 1) })}
-                            hitSlop={6}
-                          >
-                            <Text style={styles.miniButtonLabel}>−</Text>
-                          </Pressable>
-                          <Text style={styles.miniValue}>{step.offset}</Text>
-                          <Pressable
-                            testID={`script-${i}-off-plus`}
-                            style={styles.miniButton}
-                            onPress={() => updateStep(i, { offset: Math.min(9, step.offset + 1) })}
-                            hitSlop={6}
-                          >
-                            <Text style={styles.miniButtonLabel}>+</Text>
-                          </Pressable>
-                        </View>
-                      </View>
-                    )}
-                    {step.kind === "filler" && (
-                      <Text style={styles.fillerHint}>Ignored in reconstruction</Text>
-                    )}
-                  </View>
-                </View>
-              ))}
-
-              <Pressable testID="script-add-step" style={styles.addStepButton} onPress={addStep}>
-                <Symbol name="plus" fallback="+" size={16} color={styles.colors.brandPrimary} />
-                <Text style={styles.addStepLabel}>Add step</Text>
-              </Pressable>
-
-              {coverage.ok ? (
-                <Text testID="script-coverage-ok" style={styles.coverageOk}>
-                  ✓ All {config.entryLength} positions mapped once — reconstruction is complete.
-                </Text>
-              ) : (
-                <Text testID="script-coverage-warn" style={styles.coverageWarn}>
-                  {coverage.missing.length > 0 &&
-                    `Positions ${coverage.missing.join(", ")} not yet mapped. `}
-                  {coverage.dupes.length > 0 && `Positions ${coverage.dupes.join(", ")} mapped twice. `}
-                  The Peek will show • for unmapped slots.
-                </Text>
-              )}
-            </View>
-          </>
-        )}
-
-        {/* WALLPAPER */}
-        <Text style={styles.sectionLabel}>HOME SCREEN WALLPAPER</Text>
-        <View style={styles.card}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.wallpaperRow}
-          >
-            {WALLPAPER_PRESETS.map((preset) => {
-              const active = config.wallpaper === preset.id;
-              return (
-                <Pressable
-                  key={preset.id}
-                  testID={`wallpaper-${preset.id}`}
-                  style={styles.wallpaperSlot}
-                  onPress={() => {
-                    setWallpaperError("");
-                    setConfig({ ...config, wallpaper: preset.id });
-                  }}
-                >
-                  <Image
-                    source={preset.source}
-                    style={[styles.wallpaperThumb, active && styles.wallpaperThumbActive]}
-                    contentFit="cover"
-                  />
-                  <Text
-                    style={[styles.wallpaperName, active && styles.wallpaperNameActive]}
-                  >
-                    {preset.name}
-                  </Text>
-                </Pressable>
-              );
-            })}
-            <Pressable
-              testID="wallpaper-custom"
-              style={styles.wallpaperSlot}
-              onPress={pickWallpaperPhoto}
-            >
-              {isCustomWallpaper(config.wallpaper) ? (
-                <Image
-                  source={{ uri: config.wallpaper }}
-                  style={[styles.wallpaperThumb, styles.wallpaperThumbActive]}
-                  contentFit="cover"
                 />
-              ) : (
-                <View style={[styles.wallpaperThumb, styles.wallpaperCustom]}>
-                  <Symbol name="plus" fallback="+" size={24} color={styles.colors.muted} />
-                </View>
-              )}
-              <Text
-                style={[
-                  styles.wallpaperName,
-                  isCustomWallpaper(config.wallpaper) && styles.wallpaperNameActive,
-                ]}
-              >
-                Your Photo
-              </Text>
-            </Pressable>
-          </ScrollView>
-          {!!wallpaperError && (
-            <View>
-              <Text testID="wallpaper-error" style={styles.errorText}>
-                {wallpaperError}
-              </Text>
-              <Pressable
-                testID="wallpaper-open-settings"
-                onPress={() => Linking.openSettings()}
-                hitSlop={8}
-              >
-                <Text style={styles.settingsLink}>Open Settings</Text>
-              </Pressable>
+              ))}
             </View>
-          )}
+          </AccordionItem>
+
+          <AccordionItem
+            testID="accordion-lock-wallpaper"
+            title="Lock Screen Wallpaper"
+            description="What the spectator sees behind the passcode screen — same photo gallery as the home screen, picked independently."
+            icon={<Symbol name="lock.slash" fallback="" size={18} color={colors.brandPrimary} />}
+          >
+            <WallpaperPicker
+              testIDPrefix="lock-wallpaper"
+              value={config.lockWallpaper}
+              onChange={(v) => {
+                setWallpaperError("");
+                setConfig({ ...config, lockWallpaper: v });
+              }}
+              customWallpapers={customWallpapers}
+              onAddPhoto={() => pickWallpaperPhoto("lockWallpaper")}
+              onDeletePhoto={deleteCustomWallpaper}
+              error={wallpaperError}
+            />
+          </AccordionItem>
+
+          <AccordionItem
+            testID="accordion-wallpaper"
+            title="Home Screen Wallpaper"
+            description="Pick what appears on the simulated home screen right after it 'unlocks'."
+            icon={<Symbol name="photo" fallback="" size={18} color={colors.brandPrimary} />}
+          >
+            <WallpaperPicker
+              testIDPrefix="wallpaper"
+              value={config.wallpaper}
+              onChange={(v) => {
+                setWallpaperError("");
+                setConfig({ ...config, wallpaper: v });
+              }}
+              customWallpapers={customWallpapers}
+              onAddPhoto={() => pickWallpaperPhoto("wallpaper")}
+              onDeletePhoto={deleteCustomWallpaper}
+              error={wallpaperError}
+            />
+          </AccordionItem>
+
+          <AccordionItem
+            testID="accordion-feedback"
+            title="Feedback"
+            description="Turn key taps and haptic buzzes on or off during the performance."
+            last
+            icon={<Symbol name="hand.tap" fallback="〰" size={18} color={colors.brandPrimary} />}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 4 }}>
+              <Text style={{ fontSize: 16, color: colors.onSurfaceSecondary }}>Haptics</Text>
+              <Toggle testID="toggle-haptics" value={config.haptics} onValueChange={(v) => setConfig({ ...config, haptics: v })} />
+            </View>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                paddingVertical: 4,
+                marginTop: 12,
+                paddingTop: 12,
+                borderTopWidth: 1,
+                borderTopColor: colors.border,
+              }}
+            >
+              <Text style={{ fontSize: 16, color: colors.onSurfaceSecondary }}>Key sounds</Text>
+              <Toggle testID="toggle-sounds" value={config.sounds} onValueChange={(v) => setConfig({ ...config, sounds: v })} />
+            </View>
+          </AccordionItem>
+        </Accordion>
+
+        <View style={{ marginTop: 24 }}>
+          <Button testID="start-performance-button" label="Start Performance" size="lg" onPress={start} />
         </View>
 
-        {/* FEEDBACK */}
-        <Text style={styles.sectionLabel}>FEEDBACK</Text>
-        <View style={styles.card}>
-          <View style={styles.row}>
-            <Text style={styles.rowTitle}>Haptics</Text>
-            <Switch
-              testID="toggle-haptics"
-              value={config.haptics}
-              onValueChange={(v) => setConfig({ ...config, haptics: v })}
-              trackColor={{
-                false: styles.colors.surfaceTertiary,
-                true: styles.colors.brandPrimary,
-              }}
-              thumbColor={styles.colors.onSurface}
-            />
-          </View>
-          <View style={[styles.row, styles.scriptRowBorder]}>
-            <Text style={styles.rowTitle}>Key sounds</Text>
-            <Switch
-              testID="toggle-sounds"
-              value={config.sounds}
-              onValueChange={(v) => setConfig({ ...config, sounds: v })}
-              trackColor={{
-                false: styles.colors.surfaceTertiary,
-                true: styles.colors.brandPrimary,
-              }}
-              thumbColor={styles.colors.onSurface}
-            />
-          </View>
-        </View>
-
-        <Pressable testID="start-performance-button" style={styles.startButton} onPress={start}>
-          <Text style={styles.startLabel}>Start Performance</Text>
-        </Pressable>
-
-        <Text style={styles.footnote}>
+        <Text style={{ fontSize: 12, color: colors.muted, textAlign: "center", marginTop: 16, lineHeight: 18 }}>
           During a performance: long-press “Emergency” to return here. After the unlock,
           long-press the screen for 2 seconds to open Peek.
         </Text>
 
-        <Pressable testID="setup-signout-button" style={styles.signOut} onPress={logout}>
-          <Text style={styles.signOutLabel}>Sign out</Text>
-        </Pressable>
+        <Button
+          testID="setup-signout-button"
+          variant="ghost"
+          label="Sign out"
+          onPress={logout}
+          fullWidth={false}
+          size="sm"
+          style={{ alignSelf: "center", marginTop: 4 }}
+        />
       </KeyboardAwareScrollView>
     </View>
   );
 }
-
-const useStyles = makeStyles((colors) => ({
-  colors,
-  container: {
-    flex: 1,
-    backgroundColor: colors.surface,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingBottom: 8,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: colors.brandPrimary,
-  },
-  scroll: {
-    paddingHorizontal: 20,
-    gap: 8,
-  },
-  sectionLabel: {
-    fontSize: 12,
-    letterSpacing: 1.2,
-    color: colors.muted,
-    marginTop: 20,
-    marginBottom: 8,
-    marginLeft: 4,
-  },
-  card: {
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: 20,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  chipGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-  },
-  chip: {
-    flexBasis: "47%",
-    flexGrow: 1,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    backgroundColor: colors.surfaceTertiary,
-  },
-  chipActive: {
-    backgroundColor: colors.brandPrimary,
-    borderColor: colors.brandPrimary,
-  },
-  chipTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: colors.onSurfaceSecondary,
-  },
-  chipTitleActive: {
-    color: colors.onBrandPrimary,
-  },
-  chipSubtitle: {
-    fontSize: 12,
-    color: colors.muted,
-    marginTop: 2,
-  },
-  chipSubtitleActive: {
-    color: colors.onBrandPrimary,
-    opacity: 0.75,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 8,
-  },
-  rowText: {
-    flex: 1,
-    paddingRight: 12,
-  },
-  rowTitle: {
-    fontSize: 16,
-    color: colors.onSurfaceSecondary,
-  },
-  rowSubtitle: {
-    fontSize: 12,
-    color: colors.muted,
-    marginTop: 2,
-  },
-  stepper: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-  },
-  stepperButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.surfaceTertiary,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  stepperLabel: {
-    fontSize: 22,
-    color: colors.onSurfaceSecondary,
-    lineHeight: 26,
-  },
-  stepperCount: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: colors.brandPrimary,
-    minWidth: 20,
-    textAlign: "center",
-    fontVariant: ["tabular-nums"],
-  },
-  input: {
-    backgroundColor: colors.surfaceTertiary,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 18,
-    color: colors.onSurfaceSecondary,
-    fontVariant: ["tabular-nums"],
-  },
-  errorText: {
-    fontSize: 12,
-    color: colors.error,
-    marginTop: 8,
-  },
-  hintText: {
-    fontSize: 12,
-    color: colors.muted,
-    marginTop: 10,
-  },
-  scriptRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 10,
-  },
-  scriptRowBorder: {
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  stepCard: {
-    backgroundColor: colors.surfaceTertiary,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 12,
-    marginBottom: 10,
-  },
-  stepHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 10,
-  },
-  stepNumber: { fontSize: 13, fontWeight: "700", color: colors.muted, letterSpacing: 0.5 },
-  kindRow: { flexDirection: "row", gap: 6, flexWrap: "wrap" },
-  kindChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: colors.surfaceSecondary,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    flexShrink: 0,
-  },
-  kindChipActive: { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary },
-  kindText: { fontSize: 13, fontWeight: "600", color: colors.onSurfaceSecondary },
-  kindTextActive: { color: colors.onBrandPrimary },
-  stepControls: { flexDirection: "row", gap: 20, marginTop: 12, alignItems: "center" },
-  miniControl: { gap: 6 },
-  miniLabel: { fontSize: 11, color: colors.muted },
-  miniStepper: { flexDirection: "row", alignItems: "center", gap: 12 },
-  miniButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: colors.surfaceSecondary,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  miniButtonLabel: { fontSize: 18, color: colors.onSurfaceSecondary, lineHeight: 20 },
-  miniValue: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: colors.brandPrimary,
-    minWidth: 18,
-    textAlign: "center",
-    fontVariant: ["tabular-nums"],
-  },
-  fillerHint: { fontSize: 12, color: colors.muted, fontStyle: "italic" },
-  addStepButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderColor: colors.brandTertiary,
-    marginTop: 2,
-  },
-  addStepLabel: { fontSize: 14, fontWeight: "600", color: colors.brandPrimary },
-  coverageOk: { fontSize: 12, color: colors.success, marginTop: 12, lineHeight: 18 },
-  coverageWarn: { fontSize: 12, color: colors.warning, marginTop: 12, lineHeight: 18 },
-  scriptStep: {
-    fontSize: 14,
-    color: colors.muted,
-    fontVariant: ["tabular-nums"],
-  },
-  scriptDetail: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: colors.onSurfaceSecondary,
-  },
-  wallpaperRow: {
-    gap: 12,
-    paddingVertical: 2,
-  },
-  wallpaperSlot: {
-    alignItems: "center",
-    width: 64,
-  },
-  wallpaperThumb: {
-    width: 56,
-    height: 84,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: colors.border,
-  },
-  wallpaperThumbActive: {
-    borderColor: colors.brandPrimary,
-  },
-  wallpaperCustom: {
-    backgroundColor: colors.surfaceTertiary,
-    borderStyle: "dashed",
-    borderColor: colors.borderStrong,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  wallpaperName: {
-    fontSize: 11,
-    color: colors.muted,
-    marginTop: 6,
-  },
-  wallpaperNameActive: {
-    color: colors.brandPrimary,
-  },
-  settingsLink: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: colors.brandPrimary,
-    marginTop: 6,
-  },
-  startButton: {
-    marginTop: 28,
-    backgroundColor: colors.brandPrimary,
-    borderRadius: 999,
-    paddingVertical: 16,
-    alignItems: "center",
-  },
-  startLabel: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: colors.onBrandPrimary,
-  },
-  footnote: {
-    fontSize: 12,
-    color: colors.muted,
-    textAlign: "center",
-    marginTop: 16,
-    lineHeight: 18,
-  },
-  signOut: { alignItems: "center", paddingVertical: 16, marginTop: 4 },
-  signOutLabel: { fontSize: 14, color: colors.muted, textDecorationLine: "underline" },
-}));

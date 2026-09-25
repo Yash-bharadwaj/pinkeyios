@@ -24,7 +24,3 @@ export function resolveWallpaper(idOrUri: string): ImageSource {
   if (preset) return preset.source;
   return { uri: idOrUri };
 }
-
-export function isCustomWallpaper(idOrUri: string): boolean {
-  return !WALLPAPER_PRESETS.some((p) => p.id === idOrUri);
-}

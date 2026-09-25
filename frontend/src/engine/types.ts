@@ -37,7 +37,8 @@ export interface PerformanceConfig {
   script: ScriptStep[];      // SCRAMBLE | HYBRID
   haptics: boolean;
   sounds: boolean;
-  wallpaper: string; // preset id ("midnight"…) or a local image URI
+  wallpaper: string; // home screen wallpaper — preset id ("midnight"…) or a local image URI
+  lockWallpaper: string; // lock screen wallpaper — same value space as `wallpaper`
 }
 
 export interface PerformanceEvent {

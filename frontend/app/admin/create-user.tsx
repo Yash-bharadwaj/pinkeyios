@@ -1,26 +1,38 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { useState } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  Switch,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Pressable, Share, Text, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Clipboard from "expo-clipboard";
 
 import { adminCreateUser } from "@/src/api";
+import { Button, IconButton } from "@/src/components/ui/Button";
+import { Card, SectionLabel } from "@/src/components/ui/Card";
+import { DurationPicker } from "@/src/components/ui/DurationPicker";
+import { Input } from "@/src/components/ui/Input";
+import { ScreenHeader } from "@/src/components/ui/ScreenHeader";
+import { Toggle } from "@/src/components/ui/Toggle";
 import { Symbol } from "@/src/components/Symbol";
-import { makeStyles } from "@/src/theme";
+import { ThemeScheme, useTheme } from "@/src/theme";
+import { withAlpha } from "@/src/utils/color";
+import { generatePassword } from "@/src/utils/password";
+import { buildAccessMessage } from "@/src/utils/shareMessage";
 
 const CURRENCIES = ["USD", "INR"];
 
 export default function CreateUserScreen() {
-  const styles = useStyles();
+  return (
+    <ThemeScheme scheme="light">
+      <StatusBar style="dark" />
+      <CreateUserScreenInner />
+    </ThemeScheme>
+  );
+}
+
+function CreateUserScreenInner() {
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const qc = useQueryClient();
@@ -32,9 +44,13 @@ export default function CreateUserScreen() {
   const [price, setPrice] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [note, setNote] = useState("");
+  const [durationDays, setDurationDays] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [result, setResult] = useState<{ email: string; license_key: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [messageCopied, setMessageCopied] = useState(false);
+
+  const regeneratePassword = () => setPassword(generatePassword(name, email));
 
   const mutation = useMutation({
     mutationFn: adminCreateUser,
@@ -59,6 +75,7 @@ export default function CreateUserScreen() {
       currency,
       is_free: isFree,
       note: note.trim(),
+      duration_days: durationDays,
     });
   };
 
@@ -69,246 +86,253 @@ export default function CreateUserScreen() {
     setTimeout(() => setCopied(false), 1500);
   };
 
+  const accessMessage = result
+    ? buildAccessMessage({ name, email: result.email, password, licenseKey: result.license_key })
+    : "";
+
+  const copyMessage = async () => {
+    await Clipboard.setStringAsync(accessMessage);
+    setMessageCopied(true);
+    setTimeout(() => setMessageCopied(false), 1500);
+  };
+
+  const shareMessage = async () => {
+    try {
+      await Share.share({ message: accessMessage });
+    } catch {
+      // user cancelled the share sheet — nothing to do
+    }
+  };
+
   if (result) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top + 16 }]}>
-        <View style={styles.successWrap}>
-          <Symbol name="checkmark.seal.fill" fallback="✓" size={56} color={styles.colors.success} />
-          <Text style={styles.successTitle}>Magician Created</Text>
-          <Text style={styles.successSub}>{result.email}</Text>
+      <View style={{ flex: 1, backgroundColor: colors.surface, paddingTop: insets.top + 16 }}>
+        <View style={{ flex: 1, alignItems: "center", paddingHorizontal: 28, paddingTop: 40, gap: 8 }}>
+          <View
+            style={{
+              width: 84,
+              height: 84,
+              borderRadius: 42,
+              backgroundColor: withAlpha(colors.success, 0.12),
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Symbol name="checkmark.seal.fill" fallback="✓" size={40} color={colors.success} />
+          </View>
+          <Text style={{ fontSize: 22, fontWeight: "800", color: colors.onSurface, marginTop: 12 }}>
+            Magician Created
+          </Text>
+          <Text style={{ fontSize: 14, color: colors.muted }}>{result.email}</Text>
 
-          <Text style={styles.keyLabel}>LICENSE KEY</Text>
-          <Pressable testID="copy-license-key" style={styles.keyBox} onPress={copyKey}>
-            <Text style={styles.keyText}>{result.license_key}</Text>
-            <Symbol name="doc.on.doc" fallback="⧉" size={18} color={styles.colors.brandPrimary} />
+          <Text style={{ fontSize: 12, fontWeight: "600", letterSpacing: 1, color: colors.muted, marginTop: 28, textTransform: "uppercase" }}>
+            License Key
+          </Text>
+          <Pressable
+            testID="copy-license-key"
+            onPress={copyKey}
+            style={({ pressed }) => [{ alignSelf: "stretch", marginTop: 8 }, pressed && { opacity: 0.8 }]}
+          >
+            <Card
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                borderColor: colors.brandTertiary,
+                paddingVertical: 18,
+              }}
+            >
+              <Text style={{ fontSize: 20, fontWeight: "700", letterSpacing: 2, color: colors.brandPrimary }}>
+                {result.license_key}
+              </Text>
+              <Symbol name="doc.on.doc" fallback="⧉" size={18} color={colors.brandPrimary} />
+            </Card>
           </Pressable>
-          {copied && <Text style={styles.copied}>Copied!</Text>}
-          <Text style={styles.successNote}>
-            Share the email, password, and this license key with the magician. It works on one
-            device only.
+          {copied && <Text style={{ color: colors.success, fontSize: 13, marginTop: 6 }}>Copied!</Text>}
+          <Text style={{ fontSize: 13, color: colors.muted, textAlign: "center", marginTop: 20, lineHeight: 20 }}>
+            This license works on one device only. Send the message below so they have everything
+            they need to get started.
           </Text>
 
-          <Pressable testID="create-done-button" style={styles.primaryButton} onPress={() => router.back()}>
-            <Text style={styles.primaryLabel}>Done</Text>
-          </Pressable>
+          <View style={{ alignSelf: "stretch", marginTop: 20, flexDirection: "row", gap: 10 }}>
+            <View style={{ flex: 1 }}>
+              <Button
+                testID="copy-access-message"
+                variant="secondary"
+                label={messageCopied ? "Copied" : "Copy Message"}
+                icon={<Symbol name="doc.on.doc" fallback="⧉" size={16} color={colors.onSurface} />}
+                onPress={copyMessage}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Button
+                testID="share-access-message"
+                label="Share"
+                icon={<Symbol name="square.and.arrow.up" fallback="↗" size={16} color={colors.onBrandPrimary} />}
+                onPress={shareMessage}
+              />
+            </View>
+          </View>
+
+          <View style={{ alignSelf: "stretch", marginTop: 12 }}>
+            <Button testID="create-done-button" label="Done" variant="ghost" onPress={() => router.back()} />
+          </View>
         </View>
       </View>
     );
   }
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
-      <View style={styles.header}>
-        <Pressable testID="create-back-button" onPress={() => router.back()} hitSlop={12}>
-          <Symbol name="chevron.left" fallback="‹" size={26} color={styles.colors.onSurface} />
-        </Pressable>
-        <Text style={styles.title}>New Magician</Text>
-        <View style={{ width: 26 }} />
-      </View>
+    <View style={{ flex: 1, backgroundColor: colors.surface, paddingTop: insets.top }}>
+      <ScreenHeader
+        title="New Magician"
+        left={
+          <IconButton testID="create-back-button" onPress={() => router.back()}>
+            <Symbol name="chevron.left" fallback="‹" size={24} color={colors.onSurface} />
+          </IconButton>
+        }
+      />
 
       <KeyboardAwareScrollView
-        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 40 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 40, gap: 14 }}
         bottomOffset={24}
         keyboardShouldPersistTaps="handled"
       >
-        <Field label="Email" styles={styles}>
-          <TextInput
-            testID="create-email-input"
-            style={styles.input}
-            value={email}
-            onChangeText={setEmail}
-            placeholder="magician@example.com"
-            placeholderTextColor={styles.colors.muted}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-        </Field>
-        <Field label="Name (optional)" styles={styles}>
-          <TextInput
-            testID="create-name-input"
-            style={styles.input}
-            value={name}
-            onChangeText={setName}
-            placeholder="Stage name"
-            placeholderTextColor={styles.colors.muted}
-          />
-        </Field>
-        <Field label="Temporary Password" styles={styles}>
-          <TextInput
+        <Input
+          testID="create-email-input"
+          label="Email"
+          value={email}
+          onChangeText={setEmail}
+          placeholder="magician@example.com"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <Input
+          testID="create-name-input"
+          label="Name (optional)"
+          value={name}
+          onChangeText={setName}
+          placeholder="Stage name"
+        />
+        <View style={{ gap: 6 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <Text style={{ fontSize: 13, fontWeight: "500", color: colors.muted, marginLeft: 2 }}>
+              Temporary Password
+            </Text>
+            <Pressable
+              testID="generate-password-button"
+              onPress={regeneratePassword}
+              hitSlop={8}
+              style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+            >
+              <Symbol name="arrow.clockwise" fallback="↻" size={12} color={colors.brandPrimary} />
+              <Text style={{ fontSize: 13, fontWeight: "600", color: colors.brandPrimary }}>
+                {password ? "Regenerate" : "Generate"}
+              </Text>
+            </Pressable>
+          </View>
+          <Input
             testID="create-password-input"
-            style={styles.input}
             value={password}
             onChangeText={setPassword}
-            placeholder="min 6 characters"
-            placeholderTextColor={styles.colors.muted}
+            placeholder="min 6 characters, or tap Generate"
             autoCapitalize="none"
-          />
-        </Field>
-
-        <View style={styles.freeRow}>
-          <Text style={styles.freeLabel}>Give for free</Text>
-          <Switch
-            testID="create-free-toggle"
-            value={isFree}
-            onValueChange={setIsFree}
-            trackColor={{ false: styles.colors.surfaceTertiary, true: styles.colors.brandPrimary }}
-            thumbColor={styles.colors.onSurface}
           />
         </View>
 
+        <Card
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            paddingVertical: 12,
+          }}
+        >
+          <Text style={{ fontSize: 15, color: colors.onSurface }}>Give for free</Text>
+          <Toggle testID="create-free-toggle" value={isFree} onValueChange={setIsFree} />
+        </Card>
+
         {!isFree && (
-          <Field label="Sale Price" styles={styles}>
-            <View style={styles.priceRow}>
-              <View style={styles.currencyToggle}>
-                {CURRENCIES.map((c) => (
-                  <Pressable
-                    key={c}
-                    testID={`currency-${c}`}
-                    style={[styles.currencyChip, currency === c && styles.currencyChipActive]}
-                    onPress={() => setCurrency(c)}
-                  >
-                    <Text
-                      style={[styles.currencyText, currency === c && styles.currencyTextActive]}
+          <View style={{ gap: 6 }}>
+            <Text style={{ fontSize: 13, fontWeight: "500", color: colors.muted, marginLeft: 2 }}>
+              Sale Price
+            </Text>
+            <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
+              <View style={{ flexDirection: "row", gap: 6 }}>
+                {CURRENCIES.map((c) => {
+                  const active = currency === c;
+                  return (
+                    <Pressable
+                      key={c}
+                      testID={`currency-${c}`}
+                      onPress={() => setCurrency(c)}
+                      style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 13,
+                        borderRadius: 10,
+                        backgroundColor: active ? colors.brandPrimary : colors.surfaceTertiary,
+                        borderWidth: 1,
+                        borderColor: active ? colors.brandPrimary : colors.border,
+                      }}
                     >
-                      {c}
-                    </Text>
-                  </Pressable>
-                ))}
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          fontWeight: "700",
+                          color: active ? colors.onBrandPrimary : colors.onSurfaceSecondary,
+                        }}
+                      >
+                        {c}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
-              <TextInput
-                testID="create-price-input"
-                style={[styles.input, { flex: 1 }]}
-                value={price}
-                onChangeText={setPrice}
-                placeholder="0.00"
-                placeholderTextColor={styles.colors.muted}
-                keyboardType="decimal-pad"
-              />
+              <View style={{ flex: 1 }}>
+                <Input
+                  testID="create-price-input"
+                  value={price}
+                  onChangeText={setPrice}
+                  placeholder="0.00"
+                  keyboardType="decimal-pad"
+                />
+              </View>
             </View>
-          </Field>
+          </View>
         )}
 
-        <Field label="Note (optional)" styles={styles}>
-          <TextInput
-            testID="create-note-input"
-            style={[styles.input, { height: 72, textAlignVertical: "top" }]}
-            value={note}
-            onChangeText={setNote}
-            placeholder="Internal note about this sale"
-            placeholderTextColor={styles.colors.muted}
-            multiline
-          />
-        </Field>
+        <Input
+          testID="create-note-input"
+          label="Note (optional)"
+          value={note}
+          onChangeText={setNote}
+          placeholder="Internal note about this sale"
+          multiline
+          style={{ height: 72, textAlignVertical: "top" }}
+        />
+
+        <View>
+          <SectionLabel>License Duration</SectionLabel>
+          <DurationPicker testIDPrefix="create-duration" value={durationDays} onChange={setDurationDays} />
+        </View>
 
         {!!error && (
-          <Text testID="create-error" style={styles.error}>
+          <Text testID="create-error" style={{ color: colors.error, fontSize: 13 }}>
             {error}
           </Text>
         )}
 
-        <Pressable
-          testID="create-submit-button"
-          style={[styles.primaryButton, mutation.isPending && { opacity: 0.6 }]}
-          onPress={submit}
-          disabled={mutation.isPending}
-        >
-          {mutation.isPending ? (
-            <ActivityIndicator color={styles.colors.onBrandPrimary} />
-          ) : (
-            <Text style={styles.primaryLabel}>Create & Issue License</Text>
-          )}
-        </Pressable>
+        <View style={{ marginTop: 8 }}>
+          <Button
+            testID="create-submit-button"
+            label="Create & Issue License"
+            size="lg"
+            loading={mutation.isPending}
+            onPress={submit}
+          />
+        </View>
       </KeyboardAwareScrollView>
     </View>
   );
 }
-
-function Field({ label, children, styles }: { label: string; children: React.ReactNode; styles: any }) {
-  return (
-    <View style={{ marginTop: 16 }}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      {children}
-    </View>
-  );
-}
-
-const useStyles = makeStyles((colors) => ({
-  colors,
-  container: { flex: 1, backgroundColor: colors.surface },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingBottom: 8,
-  },
-  title: { fontSize: 20, fontWeight: "700", color: colors.onSurface },
-  fieldLabel: { fontSize: 13, color: colors.muted, marginBottom: 6, marginLeft: 2 },
-  input: {
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: colors.onSurface,
-  },
-  freeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 20,
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  freeLabel: { fontSize: 16, color: colors.onSurface },
-  priceRow: { flexDirection: "row", gap: 10, alignItems: "center" },
-  currencyToggle: { flexDirection: "row", gap: 6 },
-  currencyChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: colors.surfaceTertiary,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-  },
-  currencyChipActive: { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary },
-  currencyText: { fontSize: 14, fontWeight: "700", color: colors.onSurfaceSecondary },
-  currencyTextActive: { color: colors.onBrandPrimary },
-  error: { color: colors.error, fontSize: 13, marginTop: 14 },
-  primaryButton: {
-    marginTop: 28,
-    backgroundColor: colors.brandPrimary,
-    borderRadius: 999,
-    paddingVertical: 16,
-    alignItems: "center",
-  },
-  primaryLabel: { fontSize: 17, fontWeight: "700", color: colors.onBrandPrimary },
-  successWrap: { flex: 1, alignItems: "center", paddingHorizontal: 28, paddingTop: 40, gap: 8 },
-  successTitle: { fontSize: 24, fontWeight: "800", color: colors.onSurface, marginTop: 8 },
-  successSub: { fontSize: 14, color: colors.muted },
-  keyLabel: { fontSize: 12, letterSpacing: 1.2, color: colors.muted, marginTop: 32 },
-  keyBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.brandTertiary,
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    marginTop: 8,
-    alignSelf: "stretch",
-  },
-  keyText: { fontSize: 22, fontWeight: "700", letterSpacing: 2, color: colors.brandPrimary },
-  copied: { color: colors.success, fontSize: 13, marginTop: 6 },
-  successNote: { fontSize: 13, color: colors.muted, textAlign: "center", marginTop: 20, lineHeight: 20 },
-}));

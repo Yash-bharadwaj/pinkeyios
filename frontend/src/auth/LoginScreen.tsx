@@ -1,13 +1,28 @@
+import { StatusBar } from "expo-status-bar";
 import { useState } from "react";
-import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
+import { Text, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth/AuthContext";
-import { makeStyles } from "@/src/theme";
+import { Symbol } from "@/src/components/Symbol";
+import { Button } from "@/src/components/ui/Button";
+import { Input } from "@/src/components/ui/Input";
+import { ThemeScheme, useTheme } from "@/src/theme";
+
+const PINKEY_PINK = "#FF2D9C";
 
 export function LoginScreen() {
-  const styles = useStyles();
+  return (
+    <ThemeScheme scheme="light">
+      <StatusBar style="dark" />
+      <LoginScreenInner />
+    </ThemeScheme>
+  );
+}
+
+function LoginScreenInner() {
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { login } = useAuth();
   const [email, setEmail] = useState("");
@@ -28,60 +43,96 @@ export function LoginScreen() {
   };
 
   return (
-    <View testID="login-screen" style={[styles.container, { paddingTop: insets.top }]}>
+    <View testID="login-screen" style={{ flex: 1, backgroundColor: colors.surface, paddingTop: insets.top }}>
       <KeyboardAwareScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={{ flexGrow: 1, justifyContent: "center", paddingHorizontal: 28, paddingVertical: 40 }}
         bottomOffset={24}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.brandBlock}>
-          <Text style={styles.brandMark}>PINKEY</Text>
-          <Text style={styles.tagline}>Performer Access</Text>
+        <View style={{ alignItems: "center", marginBottom: 48 }}>
+          <View style={{ width: 96, height: 96, alignItems: "center", justifyContent: "center", marginBottom: 8 }}>
+            {/* Soft glow backdrop — two falling-off translucent discs, since RN
+                has no true blur-behind-a-view without a native blur layer. */}
+            <View
+              style={{
+                position: "absolute",
+                width: 96,
+                height: 96,
+                borderRadius: 48,
+                backgroundColor: PINKEY_PINK,
+                opacity: 0.16,
+              }}
+            />
+            <View
+              style={{
+                position: "absolute",
+                width: 68,
+                height: 68,
+                borderRadius: 34,
+                backgroundColor: PINKEY_PINK,
+                opacity: 0.22,
+              }}
+            />
+            <Symbol
+              name="key"
+              fallback=""
+              size={44}
+              color={PINKEY_PINK}
+              style={{ transform: [{ scaleX: -1 }] }}
+            />
+          </View>
+          <Text
+            style={{
+              fontSize: 36,
+              fontWeight: "800",
+              letterSpacing: 6,
+              color: PINKEY_PINK,
+              textShadowColor: PINKEY_PINK,
+              textShadowOffset: { width: 0, height: 0 },
+              textShadowRadius: 18,
+            }}
+          >
+            PINKEY
+          </Text>
+          <Text style={{ fontSize: 13, color: colors.muted, marginTop: 8, letterSpacing: 1.5 }}>
+            PERFORMER ACCESS
+          </Text>
         </View>
 
-        <View style={styles.form}>
-          <Text style={styles.label}>Email</Text>
-          <TextInput
+        <View style={{ gap: 14 }}>
+          <Input
             testID="login-email-input"
-            style={styles.input}
+            label="Email"
             value={email}
             onChangeText={setEmail}
             placeholder="you@example.com"
-            placeholderTextColor={styles.colors.muted}
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
             autoComplete="email"
           />
-          <Text style={styles.label}>Password</Text>
-          <TextInput
+          <Input
             testID="login-password-input"
-            style={styles.input}
+            label="Password"
             value={password}
             onChangeText={setPassword}
             placeholder="••••••••"
-            placeholderTextColor={styles.colors.muted}
-            secureTextEntry
+            isPassword
             autoCapitalize="none"
+            error={error || undefined}
           />
-          {!!error && (
-            <Text testID="login-error" style={styles.error}>
-              {error}
-            </Text>
-          )}
-          <Pressable
-            testID="login-submit-button"
-            style={[styles.button, busy && styles.buttonDisabled]}
-            onPress={submit}
-            disabled={busy}
-          >
-            {busy ? (
-              <ActivityIndicator color={styles.colors.onBrandPrimary} />
-            ) : (
-              <Text style={styles.buttonLabel}>Sign In</Text>
-            )}
-          </Pressable>
-          <Text style={styles.hint}>
+
+          <View style={{ marginTop: 10 }}>
+            <Button
+              testID="login-submit-button"
+              label="Sign In"
+              size="lg"
+              loading={busy}
+              onPress={submit}
+            />
+          </View>
+
+          <Text style={{ fontSize: 12, color: colors.muted, textAlign: "center", marginTop: 16, lineHeight: 18 }}>
             Accounts are issued by PINKEY. Contact your seller for access.
           </Text>
         </View>
@@ -98,40 +149,3 @@ function mapError(msg: string): string {
   if (msg.includes("network")) return "Network error. Check your connection.";
   return msg;
 }
-
-const useStyles = makeStyles((colors) => ({
-  colors,
-  container: { flex: 1, backgroundColor: colors.surface },
-  scroll: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 28, paddingVertical: 40 },
-  brandBlock: { alignItems: "center", marginBottom: 44 },
-  brandMark: {
-    fontSize: 40,
-    fontWeight: "800",
-    letterSpacing: 8,
-    color: colors.brandPrimary,
-  },
-  tagline: { fontSize: 13, color: colors.muted, marginTop: 8, letterSpacing: 2 },
-  form: { gap: 8 },
-  label: { fontSize: 13, color: colors.muted, marginTop: 12, marginLeft: 2 },
-  input: {
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: colors.onSurface,
-  },
-  error: { color: colors.error, fontSize: 13, marginTop: 12 },
-  button: {
-    marginTop: 24,
-    backgroundColor: colors.brandPrimary,
-    borderRadius: 999,
-    paddingVertical: 16,
-    alignItems: "center",
-  },
-  buttonDisabled: { opacity: 0.6 },
-  buttonLabel: { fontSize: 17, fontWeight: "700", color: colors.onBrandPrimary },
-  hint: { fontSize: 12, color: colors.muted, textAlign: "center", marginTop: 20, lineHeight: 18 },
-}));

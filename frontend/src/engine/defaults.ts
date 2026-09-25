@@ -69,6 +69,7 @@ export function buildDefaultConfig(mode: Mode, entryLength: EntryLength): Perfor
     haptics: true,
     sounds: true,
     wallpaper: "midnight",
+    lockWallpaper: "midnight",
   };
 }
 
