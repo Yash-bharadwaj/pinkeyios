@@ -11,18 +11,19 @@
 // starts (first load, or "New Session" from Peek) so each new spectator sees
 // the same real-feeling wake → swipe → passcode sequence.
 
+import Constants, { ExecutionEnvironment } from "expo-constants";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Redirect, useFocusEffect, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
 import { Directions, Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Easing,
   FadeIn,
-  SlideInUp,
+  SlideInDown,
   SlideOutUp,
   useAnimatedStyle,
   useSharedValue,
@@ -62,6 +63,22 @@ function timeLabel(d: Date): string {
 function dateLabel(d: Date): string {
   return `${WEEKDAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
+
+// Not a flat "iOS vs Android" split — the real fault line is Expo Go
+// (StoreClient) vs. a real build (Standalone). iOS's status bar is always a
+// transparent overlay regardless of client, so "light" content over our dark
+// wallpaper is correct there either way. On Android, a real build gets the
+// same proper edge-to-edge overlay this SDK does automatically — light
+// content is correct there too. It's specifically Android *inside Expo Go*
+// that can't reflect that edge-to-edge behavior and instead draws the status
+// bar on its own separate white system background, where "light" (white)
+// content goes invisible. So this only overrides the style for that one
+// combination, rather than making Android always dark and getting it wrong
+// again the moment this ships as a real APK.
+const STATUS_BAR_STYLE =
+  Platform.OS === "android" && Constants.executionEnvironment === ExecutionEnvironment.StoreClient
+    ? "dark"
+    : "light";
 
 // Small bouncing chevron — the same "there's more above" affordance real
 // lock screens use to hint at the swipe-up gesture.
@@ -235,9 +252,12 @@ export default function PerformanceScreen() {
 
   return (
     <View testID="performance-screen" style={styles.container}>
-      {/* Real device status bar, not a hand-drawn one — just make it light so
-          it reads clearly over the dark wallpaper scrim. */}
-      <StatusBar style="light" />
+      {/* Real device status bar, not a hand-drawn one — light content reads
+          clearly over the dark wallpaper scrim once edge-to-edge is actually
+          in effect. See STATUS_BAR_STYLE above for the one case (Android
+          inside Expo Go) where that isn't true yet and light content would
+          go invisible against Expo Go's own white status-bar background. */}
+      <StatusBar style={STATUS_BAR_STYLE} />
       {unlocked && (
         <Animated.View key="home" entering={FadeIn.duration(380)} style={styles.flex}>
           <UnlockedView
@@ -292,8 +312,16 @@ export default function PerformanceScreen() {
       {revealed && !unlocked && (
         <Animated.View
           key="lock"
-          entering={SlideInUp.duration(420).easing(Easing.out(Easing.cubic))}
-          exiting={SlideOutUp.duration(420)}
+          // Enters from BELOW moving upward — matching the direction the
+          // prelock clock screen exits in (SlideOutUp, also upward), so both
+          // layers move consistently during the transition instead of
+          // crossing each other (that mismatch, not just the wrong entry
+          // direction, was the main source of the jank). Spring instead of a
+          // fixed cubic timing curve for a native "sheet rising" feel rather
+          // than a linear slide; damping/stiffness tuned brisk with no
+          // overshoot bounce — this is a passcode reveal, not a playful modal.
+          entering={SlideInDown.springify().damping(19).stiffness(210).mass(0.7)}
+          exiting={SlideOutUp.duration(320).easing(Easing.in(Easing.cubic))}
           style={[
             StyleSheet.absoluteFill,
             styles.container,

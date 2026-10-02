@@ -484,7 +484,7 @@ function SetupScreenInner() {
           <AccordionItem
             testID="accordion-wallpaper"
             title="Home Screen Wallpaper"
-            description="What appears right after it 'unlocks'. Upload a screenshot of your own real home screen for a perfect match — real photos show full-screen with no simulated icons. Presets fall back to a simulated icon grid."
+            description="The background shown right after it 'unlocks', behind your real app menu. Choose a preset or upload your own photo — either way, the same app menu appears on top of it."
             icon={<Symbol name="photo" fallback="" size={18} color={colors.brandPrimary} />}
           >
             <WallpaperPicker

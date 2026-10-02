@@ -4,7 +4,7 @@
 // platform_libraries.glass mapping.
 import { BlurView } from "expo-blur";
 import { GlassView, isGlassEffectAPIAvailable } from "expo-glass-effect";
-import { Platform, View, type ViewProps } from "react-native";
+import { Platform, StyleSheet, View, type ViewProps } from "react-native";
 
 // expo-glass-effect wraps a brand-new (iOS 26) native API. If the native
 // module isn't linked in this build — an older Expo Go, a device on an
@@ -29,10 +29,20 @@ export function Glass({ style, children, ...rest }: ViewProps) {
     );
   }
   if (Platform.OS === "android") {
+    // "systemChromeMaterialDark" is an iOS-only material name — expo-blur
+    // silently falls back to a flat near-black tint for it on Android,
+    // which is why the dock/search pill read as a dark box instead of
+    // frosted glass. "dark" is Android's actual supported tint, at a higher
+    // intensity plus a faint light wash so the wallpaper still reads
+    // through instead of going flat/opaque. `style` (radius, margins,
+    // overflow:hidden) stays on this outer view only — putting it on the
+    // blur layer too would double every margin.
     return (
-      <BlurView intensity={50} tint="systemChromeMaterialDark" style={style} {...rest}>
+      <View style={style} {...rest}>
+        <BlurView intensity={70} tint="dark" style={StyleSheet.absoluteFill} />
+        <View style={[StyleSheet.absoluteFill, styles.androidGlassWash]} />
         {children}
-      </BlurView>
+      </View>
     );
   }
   return (
@@ -41,3 +51,9 @@ export function Glass({ style, children, ...rest }: ViewProps) {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  androidGlassWash: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+});
