@@ -1,0 +1,14 @@
+# gcloud uploads this directory to Cloud Build. Keep secrets and bulk out.
+# NOTE: .env must never be uploaded -- secrets reach the service via
+# Secret Manager (see deploy.sh), not the build context.
+.env
+.env.*
+.venv/
+__pycache__/
+*.pyc
+*.out
+*.bak
+requirements.emergent-full.txt.bak
+tests/
+.git/
+.gitignore

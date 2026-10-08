@@ -4,10 +4,13 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+
+import certifi
 import secrets
 import string
 import uuid
 from pathlib import Path
+from contextlib import asynccontextmanager
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
 from datetime import datetime, timedelta, timezone
@@ -28,10 +31,43 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 mongo_url = os.environ["MONGO_URL"]
-client = AsyncIOMotorClient(mongo_url)
+# Pool sized for Cloud Run: each instance keeps a small pool and the service
+# scales out by adding instances rather than growing one pool. The short
+# server-selection timeout makes a database blip fail fast instead of hanging
+# the request until the client gives up.
+client = AsyncIOMotorClient(
+    mongo_url,
+    # Pin the CA bundle rather than trusting the host's cert store, which is
+    # absent on some systems (macOS Python in particular) and would fail the
+    # TLS handshake to Atlas. Ignored for a non-TLS local mongodb:// URL.
+    tlsCAFile=certifi.where(),
+    maxPoolSize=20,
+    minPoolSize=2,
+    serverSelectionTimeoutMS=8000,
+    connectTimeoutMS=8000,
+    retryWrites=True,
+    appname="pinkey-api",
+)
 db = client[os.environ["DB_NAME"]]
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Startup/shutdown. Index creation and the admin seed are idempotent, so
+    this is safe to run on every cold start of every instance."""
+    init_firebase()
+    await db.licenses.create_index("key", unique=True)
+    await db.users.create_index("email")
+    await db.devices.create_index("device_id")
+    try:
+        await seed_admin()
+    except Exception as e:  # noqa: BLE001
+        logger.error("Admin seed failed: %s", e)
+    yield
+    client.close()
+
+
+app = FastAPI(title="PINKEY API", lifespan=lifespan)
 api_router = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -629,9 +665,13 @@ async def admin_sales_insights(admin: dict = Depends(require_admin), months: int
 
 app.include_router(api_router)
 
+# The mobile client is native (CORS does not apply to it); this only matters
+# for the Expo web build. Credentials are off because auth travels as a Bearer
+# header -- a wildcard origin *with* credentials is invalid per the CORS spec
+# and browsers reject it.
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
@@ -667,18 +707,13 @@ async def seed_admin():
     logger.info("Admin seeded: %s (uid=%s)", email, uid)
 
 
-@app.on_event("startup")
-async def startup():
-    init_firebase()
-    await db.licenses.create_index("key", unique=True)
-    await db.users.create_index("email")
-    await db.devices.create_index("device_id")
+@app.get("/health")
+async def health():
+    """Liveness + database reachability, for uptime checks. Deliberately
+    outside /api so it needs no auth and stays cheap."""
     try:
-        await seed_admin()
+        await client.admin.command("ping")
+        return {"status": "ok", "db": "up"}
     except Exception as e:  # noqa: BLE001
-        logger.error("Admin seed failed: %s", e)
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    client.close()
+        logger.error("Health check failed: %s", e)
+        raise HTTPException(status_code=503, detail="database unreachable")

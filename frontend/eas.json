@@ -6,18 +6,45 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_BACKEND_URL": "https://pinkey-api-885349751083.asia-south1.run.app",
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyCanhIyP8bkEqTXoy1LoncwtNczFEBASkU",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:885349751083:ios:94a229f36dfe339bdc0d6e",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "pinkey-6f079.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "885349751083",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "pinkey-6f079",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "pinkey-6f079.firebasestorage.app"
+      }
     },
     "preview": {
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_BACKEND_URL": "https://pinkey-api-885349751083.asia-south1.run.app",
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyCanhIyP8bkEqTXoy1LoncwtNczFEBASkU",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:885349751083:ios:94a229f36dfe339bdc0d6e",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "pinkey-6f079.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "885349751083",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "pinkey-6f079",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "pinkey-6f079.firebasestorage.app"
       }
     },
     "production": {
       "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_BACKEND_URL": "https://pinkey-api-885349751083.asia-south1.run.app",
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyCanhIyP8bkEqTXoy1LoncwtNczFEBASkU",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:885349751083:ios:94a229f36dfe339bdc0d6e",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "pinkey-6f079.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "885349751083",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "pinkey-6f079",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "pinkey-6f079.firebasestorage.app"
       }
     }
   },

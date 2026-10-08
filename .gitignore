@@ -90,3 +90,9 @@ mongod.out
 credentials.json
 *.key
 .credentials
+
+# Local backups taken during the Cloud Run migration -- git history already
+# holds every previous version of these files.
+*.bak
+frontend/assets/images/_icon_backup_preicon/
+icon-preview.png
