@@ -96,3 +96,7 @@ credentials.json
 *.bak
 frontend/assets/images/_icon_backup_preicon/
 icon-preview.png
+
+# Apple App Store Connect API keys -- never commit these
+*.p8
+AuthKey_*.p8
