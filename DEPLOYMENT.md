@@ -12,6 +12,7 @@ Audience: whoever maintains this project (you, or a dev you hand it to).
 | Auth | Firebase Auth | project `pinkey-6f079` — unchanged, was already live |
 | Secrets | GCP Secret Manager | `pinkey-mongo-url`, `pinkey-firebase-sa-b64`, `pinkey-firebase-web-api-key`, `pinkey-admin-password` |
 | Android app | EAS Build | `@yashwanthbharadwaj/pinkey`, `preview` profile → installable APK |
+| Egress | Cloud NAT | static IP **35.200.167.129** via `pinkey-router`/`pinkey-nat`; Cloud Run uses Direct VPC egress (`all-traffic`) so every outbound call leaves from that one IP |
 | Uptime check | Cloud Monitoring | `/health` every 5 min from 3 continents, asserts body contains `"db":"up"` |
 | Alerting | Cloud Monitoring | policy "PINKEY API is down" → email to yashwanthmantha1@gmail.com, auto-closes after 30 min |
 | Budget alert | Cloud Billing | ₹1500/mo, alerts at 50% / 90% / 100%, scoped to this project only |
@@ -62,10 +63,12 @@ requests before it refuses work, which is far above what 500 users generate.
 
 Do these before the user count grows:
 
-1. **Lock down Atlas network access.** It is currently open to `0.0.0.0/0`
-   because Cloud Run has no fixed outbound IP. Fix properly with a Serverless
-   VPC connector + Cloud NAT with a static IP, then allow only that IP.
-   This is the one real security gap in the current setup.
+1. **Finish locking down Atlas.** The GCP half is done: Cloud Run now egresses
+   through Cloud NAT on the static IP **35.200.167.129** (verified by running a
+   job on the same network config and having it report its public IP). What
+   remains is the Atlas half, in the Atlas UI under Network Access:
+   add `35.200.167.129/32`, confirm the service is still healthy, then delete
+   the `0.0.0.0/0` entry. Reversible instantly by re-adding `0.0.0.0/0`.
 2. **Atlas tier.** M0 is 512MB and shared CPU. Fine for 500 licence records,
    but it has no backups worth relying on. Move to M10 for automated backups
    and dedicated resources before this holds real customer money.
@@ -100,6 +103,9 @@ Do these before the user count grows:
   parallel because they share one admin account and one database (e.g.
   `test_sales_insights_shape` asserts over all sales while another worker is
   creating users). Run `pytest -n 0` against a deployed backend.
+- **APK is arm64-v8a only** (53 MB, down from 112 MB with all four ABIs). This
+  excludes 32-bit devices, roughly pre-2019 hardware. If a tester's install
+  fails, add `armeabi-v7a` to `buildArchs` in app.json and rebuild (~+14 MB).
 - **No `expo-updates`.** Every JS change needs a fresh APK and a manual
   reinstall by each tester. Adding `expo-updates` + EAS Update would let you
   ship JS fixes over the air, but it is a native dependency change and needs
