@@ -49,6 +49,17 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "ascAppId": "6824938477",
+        "appleTeamId": "DA8UT2AUQ2",
+        "ascApiKeyPath": "$HOME/.pinkey-secrets/AuthKey_JZ62RK9MH8.p8",
+        "ascApiKeyId": "JZ62RK9MH8",
+        "ascApiKeyIssuerId": "3812fd76-cbb9-4d6e-a619-561511939625",
+        "groups": [
+          "Team (Expo)"
+        ]
+      }
+    }
   }
 }
